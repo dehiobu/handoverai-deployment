@@ -1,0 +1,16 @@
+# Data Directory
+
+Place your AI-validated dataset here:
+
+**Required file:** `ai_validated_dataset.json`
+
+**How to get it:**
+1. Run: `python ai_temporary_validation.py` (from parent directory)
+2. Copy the output file: `ai_validated_dataset_TEMPORARY.json`
+3. Rename to: `ai_validated_dataset.json`
+4. Place in this directory
+
+**File should contain:**
+- 447 training cases (285 medical + 162 patient-language)
+- AI validation metadata
+- Case presentations in JSON format

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python -m pytest tests/ --collect-only)",
+      "Bash(venv/Scripts/python -m pytest tests/ -v)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(pytest -v)"
+    ]
+  }
+}
