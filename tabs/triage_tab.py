@@ -13,6 +13,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from ui.components import OVERRIDE_REASONS, render_explainability_panel, show_result
+from src import letter_generator
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -449,7 +450,8 @@ def render_triage() -> None:
                     st.info("Blood tests requested: " + ", ".join(selected_bloods))
 
                 st.markdown("---")
-                if st.button("Generate Referral Letter", key=f"gen_letter_{case_idx}"):
+                if st.button("Generate Referral Letter (.docx)", key=f"gen_letter_{case_idx}"):
+                    # Plain text — for Print Summary / text preview
                     st.session_state[f"referral_letter_{case_idx}"] = _generate_referral_letter(
                         result=result,
                         patient_input=entry["input"],
@@ -461,7 +463,20 @@ def render_triage() -> None:
                         urgency_txt=urgency_txt,
                         timestamp=entry["timestamp"],
                     )
-                    st.success("Referral letter generated — view in the Letters & Export tab.")
+                    # NHS-branded Word document
+                    st.session_state[f"referral_docx_{case_idx}"] = (
+                        letter_generator.generate_referral_letter(
+                            nhs_number=entry.get("nhs_number", "Not recorded"),
+                            patient_description=entry["input"],
+                            doctor=selected_doctor,
+                            specialty=selected_specialty,
+                            imaging=st.session_state.get(imaging_key, []),
+                            blood_tests=st.session_state.get(bloods_key, []),
+                            triage_result=result,
+                            timestamp=entry["timestamp"],
+                        )
+                    )
+                    st.success("Referral letter generated — download the Word doc in the Letters & Export tab.")
 
             # ── Tab 4: Override ──────────────────────────────────────────────
             with tab4:
@@ -516,44 +531,88 @@ def render_triage() -> None:
 
             # ── Tab 5: Letters & Export ──────────────────────────────────────
             with tab5:
+                docx_key   = f"referral_docx_{case_idx}"
                 letter_key = f"referral_letter_{case_idx}"
-                if letter_key in st.session_state:
-                    letter_text = st.session_state[letter_key]
+                if docx_key in st.session_state or letter_key in st.session_state:
                     st.subheader("Generated Referral Letter")
-                    st.text_area(
-                        "Referral Letter:",
-                        value=letter_text,
-                        height=350,
-                        key=f"letter_display_{case_idx}",
+                    st.success(
+                        "NHS-branded Word document ready. "
+                        "Download to open in Microsoft Word or compatible software."
                     )
-                    dl1, dl2 = st.columns(2)
+                    _date_slug = entry["timestamp"][:10]
+                    _doc_obj   = st.session_state.get(f"selected_doctor_obj_{case_idx}", _DOCTORS[0])
+                    dl1, dl2, dl3 = st.columns(3)
+
+                    # .docx download (primary)
                     with dl1:
-                        st.download_button(
-                            "Download Letter as .txt",
-                            data=letter_text,
-                            file_name=f"referral_letter_{entry['timestamp'][:10]}.txt",
-                            mime="text/plain",
-                            key=f"dl_letter_{case_idx}",
-                        )
-                    with dl2:
-                        if st.button("Email Letter", key=f"email_letter_{case_idx}"):
-                            _doc  = st.session_state.get(f"selected_doctor_obj_{case_idx}", _DOCTORS[0])
-                            _spec = st.session_state.get(f"specialty_{case_idx}", "General Practice")
-                            ok, msg = _send_assignment_email(
-                                doctor=_doc,
-                                patient_input=entry["input"],
-                                triage_decision=triage_lvl,
-                                urgency=urgency_txt,
-                                specialty=_spec,
+                        if docx_key in st.session_state:
+                            st.download_button(
+                                "Download Letter (.docx)",
+                                data=st.session_state[docx_key],
+                                file_name=f"referral_letter_{_date_slug}.docx",
+                                mime=(
+                                    "application/vnd.openxmlformats-officedocument"
+                                    ".wordprocessingml.document"
+                                ),
+                                key=f"dl_docx_{case_idx}",
                             )
-                            if ok:
-                                st.success(f"Letter emailed. {msg}")
+
+                    # .txt fallback
+                    with dl2:
+                        if letter_key in st.session_state:
+                            st.download_button(
+                                "Download Letter (.txt)",
+                                data=st.session_state[letter_key],
+                                file_name=f"referral_letter_{_date_slug}.txt",
+                                mime="text/plain",
+                                key=f"dl_letter_{case_idx}",
+                            )
+
+                    # Email with attachment
+                    with dl3:
+                        if st.button("Email Letter (.docx)", key=f"email_letter_{case_idx}"):
+                            _spec = st.session_state.get(f"specialty_{case_idx}", "General Practice")
+                            if docx_key in st.session_state:
+                                ok, msg = letter_generator.send_letter_email(
+                                    to_email=_doc_obj.get("email", ""),
+                                    subject=(
+                                        f"[GP Triage] Referral Letter — "
+                                        f"{triage_lvl} — {_spec}"
+                                    ),
+                                    body=(
+                                        f"Dear {_doc_obj['name']},\n\n"
+                                        f"Please find attached the referral letter "
+                                        f"for a {triage_lvl} patient.\n\n"
+                                        f"— GP Triage System"
+                                    ),
+                                    docx_bytes=st.session_state[docx_key],
+                                    filename=f"referral_letter_{_date_slug}.docx",
+                                )
                             else:
-                                st.warning(f"Could not email letter: {msg}")
+                                ok, msg = _send_assignment_email(
+                                    doctor=_doc_obj,
+                                    patient_input=entry["input"],
+                                    triage_decision=triage_lvl,
+                                    urgency=urgency_txt,
+                                    specialty=_spec,
+                                )
+                            st.success(msg) if ok else st.warning(msg)
+
+                    # Plain-text preview (collapsible)
+                    if letter_key in st.session_state:
+                        with st.expander("Preview letter text"):
+                            st.text_area(
+                                "Referral Letter (plain text):",
+                                value=st.session_state[letter_key],
+                                height=300,
+                                key=f"letter_display_{case_idx}",
+                                disabled=True,
+                            )
                 else:
                     st.info(
                         "No referral letter yet. "
-                        "Go to the **Assign & Refer** tab and click 'Generate Referral Letter'."
+                        "Go to the **Assign & Refer** tab and click "
+                        "'Generate Referral Letter (.docx)'."
                     )
 
                 st.markdown("---")
