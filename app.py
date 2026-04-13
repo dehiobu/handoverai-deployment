@@ -15,6 +15,7 @@ Phases implemented
 import streamlit as st
 
 import config
+from src.database import init_db, load_pathways_from_db
 from src.vector_store import vector_store
 from src.rag_pipeline import RAGPipeline
 from ui.sidebar import render_sidebar
@@ -186,11 +187,13 @@ st.markdown("""
 # ──────────────────────────────────────────────────────────────────────────────
 
 if "initialized" not in st.session_state:
+    # Initialise DB (idempotent) and pre-load persisted pathways
+    init_db()
     st.session_state.initialized = False
     st.session_state.triage_history = []
     st.session_state.audit_log = []
     st.session_state.last_result = None
-    st.session_state.pathways = {}
+    st.session_state.pathways = load_pathways_from_db()
     st.session_state.show_new_pathway_form = False
 
 

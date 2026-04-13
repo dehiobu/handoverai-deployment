@@ -10,6 +10,7 @@ from datetime import date, datetime
 import streamlit as st
 
 from src import letter_generator
+from src.database import save_patient, save_pathway_stage
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -217,18 +218,22 @@ def _render_stage_5(pathway: dict, pkey: str) -> None:
         submitted  = st.form_submit_button("Save Stage 5 — Admission", type="primary")
 
     if submitted:
+        stage_data_5 = {
+            "admission_date":       str(admission_date),
+            "ward_name":            ward_name,
+            "bed_number":           bed_number,
+            "admitting_consultant": admitting_cons,
+            "admission_type":       admission_type,
+            "hospital":             hospital,
+            "admission_status":     adm_status,
+        }
         pathway["stages"][5] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "admission_date":      str(admission_date),
-                "ward_name":           ward_name,
-                "bed_number":          bed_number,
-                "admitting_consultant": admitting_cons,
-                "admission_type":      admission_type,
-                "hospital":            hospital,
-                "admission_status":    adm_status,
-            },
+            "data": stage_data_5,
         }
+        save_pathway_stage(
+            pathway["nhs_number"], 5, STAGE_LABELS[5], "complete", stage_data_5
+        )
         if pathway["current_stage"] <= 5:
             pathway["current_stage"] = 6
         st.rerun()
@@ -255,17 +260,21 @@ def _render_stage_6(pathway: dict, pkey: str) -> None:
         submitted = st.form_submit_button("Save Stage 6 — Diagnosis", type="primary")
 
     if submitted:
+        stage_data_6 = {
+            "confirmed_diagnosis":   confirmed_dx,
+            "icd10_code":            icd10,
+            "snomed_code":           snomed,
+            "diagnosing_consultant": dx_cons,
+            "diagnosis_date":        str(dx_date),
+            "diagnosis_status":      dx_status,
+        }
         pathway["stages"][6] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "confirmed_diagnosis":  confirmed_dx,
-                "icd10_code":           icd10,
-                "snomed_code":          snomed,
-                "diagnosing_consultant": dx_cons,
-                "diagnosis_date":       str(dx_date),
-                "diagnosis_status":     dx_status,
-            },
+            "data": stage_data_6,
         }
+        save_pathway_stage(
+            pathway["nhs_number"], 6, STAGE_LABELS[6], "complete", stage_data_6
+        )
         if pathway["current_stage"] <= 6:
             pathway["current_stage"] = 7
         st.rerun()
@@ -296,19 +305,23 @@ def _render_stage_7(pathway: dict, pkey: str) -> None:
         submitted = st.form_submit_button("Save Stage 7 — Treatment", type="primary")
 
     if submitted:
+        stage_data_7 = {
+            "treatment_type":    treatment_type,
+            "procedure_name":    procedure_name,
+            "theatre":           theatre,
+            "anaesthetic_type":  anaesthetic,
+            "operating_surgeon": surgeon,
+            "procedure_date":    str(proc_date),
+            "duration_minutes":  duration,
+            "treatment_status":  tx_status,
+        }
         pathway["stages"][7] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "treatment_type":   treatment_type,
-                "procedure_name":   procedure_name,
-                "theatre":          theatre,
-                "anaesthetic_type": anaesthetic,
-                "operating_surgeon": surgeon,
-                "procedure_date":   str(proc_date),
-                "duration_minutes": duration,
-                "treatment_status": tx_status,
-            },
+            "data": stage_data_7,
         }
+        save_pathway_stage(
+            pathway["nhs_number"], 7, STAGE_LABELS[7], "complete", stage_data_7
+        )
         if pathway["current_stage"] <= 7:
             pathway["current_stage"] = 8
         st.rerun()
@@ -339,17 +352,21 @@ def _render_stage_8(pathway: dict, pkey: str) -> None:
                 los   = f"{(date.today() - admit).days} days"
             except ValueError:
                 pass
+        stage_data_8 = {
+            "outcome":            outcome,
+            "complications":      complications or "None",
+            "length_of_stay":     los,
+            "follow_up_required": follow_up,
+            "outcome_notes":      outcome_notes,
+            "outcome_status":     oc_status,
+        }
         pathway["stages"][8] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "outcome":           outcome,
-                "complications":     complications or "None",
-                "length_of_stay":    los,
-                "follow_up_required": follow_up,
-                "outcome_notes":     outcome_notes,
-                "outcome_status":    oc_status,
-            },
+            "data": stage_data_8,
         }
+        save_pathway_stage(
+            pathway["nhs_number"], 8, STAGE_LABELS[8], "complete", stage_data_8
+        )
         if pathway["current_stage"] <= 8:
             pathway["current_stage"] = 9
         st.rerun()
@@ -383,18 +400,22 @@ def _render_stage_9(pathway: dict, pkey: str) -> None:
         submitted      = st.form_submit_button("Save Stage 9 — Aftercare", type="primary")
 
     if submitted:
+        stage_data_9 = {
+            "followup_date":          str(followup_date),
+            "followup_location":      followup_loc,
+            "followup_doctor":        followup_doctor,
+            "medications":            medications,
+            "aftercare_instructions": instructions,
+            "community_referrals":    community_refs,
+            "aftercare_status":       ac_status,
+        }
         pathway["stages"][9] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "followup_date":         str(followup_date),
-                "followup_location":     followup_loc,
-                "followup_doctor":       followup_doctor,
-                "medications":           medications,
-                "aftercare_instructions": instructions,
-                "community_referrals":   community_refs,
-                "aftercare_status":      ac_status,
-            },
+            "data": stage_data_9,
         }
+        save_pathway_stage(
+            pathway["nhs_number"], 9, STAGE_LABELS[9], "complete", stage_data_9
+        )
         if pathway["current_stage"] <= 9:
             pathway["current_stage"] = 10
         st.rerun()
@@ -428,21 +449,25 @@ def _render_stage_10(pathway: dict, pkey: str) -> None:
         submitted = st.form_submit_button("Save Stage 10 — Discharge", type="primary")
 
     if submitted:
+        stage_data_10 = {
+            "discharge_date":        str(discharge_date),
+            "discharge_type":        discharge_type,
+            "discharge_summary":     discharge_summary,
+            "gp_notified":           gp_notified,
+            "gp_letter_generated":   gp_letter,
+            "patient_accompanied":   accompanied,
+            "transport_arranged":    transport,
+            "discharge_medications": discharge_meds,
+            "discharge_status":      dc_status,
+        }
         pathway["stages"][10] = {
             "status": "complete", "timestamp": datetime.now().isoformat(),
-            "data": {
-                "discharge_date":      str(discharge_date),
-                "discharge_type":      discharge_type,
-                "discharge_summary":   discharge_summary,
-                "gp_notified":         gp_notified,
-                "gp_letter_generated": gp_letter,
-                "patient_accompanied": accompanied,
-                "transport_arranged":  transport,
-                "discharge_medications": discharge_meds,
-                "discharge_status":    dc_status,
-            },
+            "data": stage_data_10,
         }
-        # Stage 10 is the terminus — keep current_stage at 10
+        save_pathway_stage(
+            pathway["nhs_number"], 10, STAGE_LABELS[10], "complete", stage_data_10
+        )
+        # Stage 10 is the terminus -- keep current_stage at 10
         pathway["current_stage"] = 10
         st.success("Patient pathway complete!")
         st.rerun()
@@ -640,6 +665,16 @@ def render_pathway() -> None:
                     except (ValueError, IndexError):
                         case_idx = None
                 pathways[nhs_clean] = _make_new_pathway(nhs_clean, case_idx)
+
+                # Persist patient and any auto-filled stages to DB
+                save_patient(nhs_clean)
+                for snum, sdata in pathways[nhs_clean]["stages"].items():
+                    if sdata.get("status") == "complete":
+                        save_pathway_stage(
+                            nhs_clean, snum, STAGE_LABELS[snum],
+                            "complete", sdata.get("data", {}),
+                        )
+
                 st.session_state.show_new_pathway_form = False
                 st.success(f"Pathway created for NHS {nhs_clean}.")
                 st.rerun()

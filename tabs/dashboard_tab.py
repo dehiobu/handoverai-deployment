@@ -1,10 +1,12 @@
 """
-tabs/dashboard_tab.py — Executive Metrics Dashboard tab (Phases 3 & 5).
+tabs/dashboard_tab.py -- Executive Metrics Dashboard tab (Phases 3 & 5).
 """
 import json
 
 import pandas as pd
 import streamlit as st
+
+from src.database import get_dashboard_stats, get_all_triage_sessions
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
 _STAGE_LABELS = {
@@ -59,12 +61,59 @@ def _calc_session_stats(history: list) -> dict:
     }
 
 
+def _render_historical_section() -> None:
+    """Render the all-time historical stats loaded from the SQLite database."""
+    db_stats = get_dashboard_stats()
+    if not db_stats or db_stats.get("total", 0) == 0:
+        return
+
+    st.markdown(
+        '<div class="section-heading">All-Time Historical Records (Database)</div>',
+        unsafe_allow_html=True,
+    )
+
+    total = db_stats["total"]
+    h1, h2, h3, h4, h5, h6, h7 = st.columns(7)
+    h1.metric("Total Patients",  db_stats.get("total_patients", 0))
+    h2.metric("Total Triages",   total)
+    h3.metric("RED",             db_stats["red"],
+              delta=f"{db_stats['red']/total*100:.0f}%")
+    h4.metric("AMBER",           db_stats["amber"],
+              delta=f"{db_stats['amber']/total*100:.0f}%")
+    h5.metric("GREEN",           db_stats["green"],
+              delta=f"{db_stats['green']/total*100:.0f}%")
+    h6.metric("Discharged",      db_stats.get("discharged", 0))
+    h7.metric("Override Rate",   f"{db_stats['override_rate_pct']:.0f}%")
+
+    # Historical triage log
+    sessions = get_all_triage_sessions()
+    if sessions:
+        rows = []
+        for s in sessions:
+            rows.append({
+                "Date":          (s["created_at"] or "")[:16].replace("T", " "),
+                "NHS Number":    s["nhs_number"] or "—",
+                "AI Triage":     s["triage_decision"],
+                "Urgency":       s["urgency"] or "—",
+                "Confidence":    s["confidence"] or "—",
+                "Response (s)":  s.get("response_time_seconds") or "—",
+                "Override":      s["clinician_override"] or "None",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    st.markdown("---")
+
+
 def render_executive_dashboard() -> None:
     """Render the Executive Metrics Dashboard tab."""
+    # Historical DB section always shown if data exists
+    _render_historical_section()
+
     history = [e for e in st.session_state.triage_history if "result" in e]
     if not history:
         st.info(
-            "No triage data yet. Run cases on the Triage tab to populate this dashboard."
+            "No triage data yet in this session. Run cases on the Triage tab "
+            "to populate the session metrics below."
         )
         return
 

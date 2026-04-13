@@ -32,6 +32,9 @@ env/
 chroma_db/
 *.sqlite3
 
+# SQLite app database
+*.db
+
 # Logs
 logs/
 *.log
