@@ -10,7 +10,15 @@ from datetime import date, datetime
 import streamlit as st
 
 from src import letter_generator
-from src.database import save_patient, save_pathway_stage
+from src.database import (
+    save_patient, save_pathway_stage,
+    save_ward_log, get_ward_logs,
+    save_observation, get_observations,
+    save_medication, get_medications,
+    save_safeguarding_flag, get_safeguarding_flags,
+    update_discharge_checklist, get_discharge_checklist,
+    get_patient_timeline, get_patient,
+)
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -424,6 +432,9 @@ def _render_stage_9(pathway: dict, pkey: str) -> None:
 # ── Stage 10 — Discharge ───────────────────────────────────────────────────────
 
 def _render_stage_10(pathway: dict, pkey: str) -> None:
+    # Pre-discharge checklist — must complete required items before saving
+    checklist_ready = _render_discharge_checklist_section(pathway, pkey)
+
     st.caption(
         "Demo simulation — in production this integrates with EPR/PAS system"
     )
@@ -446,9 +457,14 @@ def _render_stage_10(pathway: dict, pkey: str) -> None:
             placeholder="Brief clinical summary for GP records...",
         )
         dc_status = st.selectbox("Status", ["Pending", "Discharged"])
-        submitted = st.form_submit_button("Save Stage 10 — Discharge", type="primary")
+        submitted = st.form_submit_button(
+            "Save Stage 10 — Discharge", type="primary",
+            disabled=not checklist_ready,
+        )
 
-    if submitted:
+    if submitted and not checklist_ready:
+        st.warning("Complete all required checklist items before saving discharge.")
+    elif submitted:
         stage_data_10 = {
             "discharge_date":        str(discharge_date),
             "discharge_type":        discharge_type,
@@ -483,6 +499,657 @@ _STAGE_RENDERERS = {
     9:  _render_stage_9,
     10: _render_stage_10,
 }
+
+
+# ── NEWS2 scoring ─────────────────────────────────────────────────────────────
+
+def _calc_news2(temp: float, resp_rate: int, o2_sats: int,
+                sys_bp: int, hr: int, avpu: str) -> int:
+    """Calculate National Early Warning Score 2 (NEWS2)."""
+    score = 0
+    # Temperature
+    if temp <= 35.0:      score += 3
+    elif temp <= 36.0:    score += 1
+    elif temp <= 38.0:    score += 0
+    elif temp <= 39.0:    score += 1
+    else:                 score += 2
+    # Respiratory rate
+    if resp_rate <= 8:    score += 3
+    elif resp_rate <= 11: score += 1
+    elif resp_rate <= 20: score += 0
+    elif resp_rate <= 24: score += 2
+    else:                 score += 3
+    # SpO2 (Scale 1 — no supplemental O2 assumed)
+    if o2_sats <= 91:    score += 3
+    elif o2_sats <= 93:  score += 2
+    elif o2_sats <= 95:  score += 1
+    # Systolic BP
+    if sys_bp <= 90:     score += 3
+    elif sys_bp <= 100:  score += 2
+    elif sys_bp <= 110:  score += 1
+    elif sys_bp <= 219:  score += 0
+    else:                score += 3
+    # Heart rate
+    if hr <= 40:         score += 3
+    elif hr <= 50:       score += 1
+    elif hr <= 90:       score += 0
+    elif hr <= 110:      score += 1
+    elif hr <= 130:      score += 2
+    else:                score += 3
+    # AVPU — any deviation from Alert = 3
+    if avpu != "Alert":  score += 3
+    return score
+
+
+# ── Feature 1 — Ward Daily Log ────────────────────────────────────────────────
+
+_SHIFTS = ["Morning Round", "Afternoon Review", "Night Review"]
+_CLINICIAN_ROLES = ["Consultant", "Registrar", "SHO", "Nurse", "Other"]
+
+
+def _render_ward_log(pathway: dict, pkey: str) -> None:
+    """Ward daily SOAP log section."""
+    nhs = pathway["nhs_number"]
+    st.markdown(
+        '<div class="section-heading">Ward Daily Log (SOAP)</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Record clinical assessment for each ward round shift.")
+
+    with st.form(key=f"ward_log_form_{pkey}"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            log_date = st.date_input("Date", key=f"wl_date_{pkey}")
+            shift    = st.selectbox("Shift", _SHIFTS, key=f"wl_shift_{pkey}")
+        with c2:
+            clinician_preset = st.selectbox(
+                "Clinician", [d["name"] for d in _DOCTORS] + ["Other (free text)"],
+                key=f"wl_clin_preset_{pkey}",
+            )
+            clinician_free = st.text_input(
+                "Clinician name (if Other)", key=f"wl_clin_free_{pkey}"
+            )
+        with c3:
+            role = st.selectbox("Role", _CLINICIAN_ROLES, key=f"wl_role_{pkey}")
+
+        st.markdown("**SOAP Note**")
+        subjective  = st.text_area("S — Subjective (patient reports)", height=70,
+                                    key=f"wl_s_{pkey}")
+        objective   = st.text_area("O — Objective (clinical findings)", height=70,
+                                    key=f"wl_o_{pkey}")
+        assessment  = st.text_area("A — Assessment (clinical impression)", height=70,
+                                    key=f"wl_a_{pkey}")
+        plan        = st.text_area("P — Plan (treatment plan)", height=70,
+                                    key=f"wl_p_{pkey}")
+        submitted   = st.form_submit_button("Add to Log", type="primary")
+
+    if submitted:
+        clinician = (
+            clinician_free.strip()
+            if clinician_preset == "Other (free text)" and clinician_free.strip()
+            else clinician_preset
+        )
+        if not clinician or not subjective.strip():
+            st.warning("Clinician name and Subjective (S) are required.")
+        else:
+            save_ward_log(nhs, str(log_date), shift, clinician, role,
+                          subjective, objective, assessment, plan)
+            st.success("Ward log entry saved.")
+            st.rerun()
+
+    logs = get_ward_logs(nhs)
+    if logs:
+        st.markdown(f"**{len(logs)} log entries** (newest first):")
+        for entry in logs:
+            ts = (entry.get("created_at") or "")[:16].replace("T", " ")
+            with st.expander(
+                f"{ts} | {entry['shift']} | {entry['clinician']} ({entry['role']})"
+            ):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(f"**S:** {entry['subjective']}")
+                    st.markdown(f"**O:** {entry['objective']}")
+                with c2:
+                    st.markdown(f"**A:** {entry['assessment']}")
+                    st.markdown(f"**P:** {entry['plan']}")
+    else:
+        st.info("No ward log entries yet.")
+
+
+# ── Feature 2 — Nurse Observations (NEWS2) ───────────────────────────────────
+
+_AVPU_OPTIONS = ["Alert", "Voice", "Pain", "Unresponsive"]
+_WOUND_OPTIONS = ["Intact", "Changed", "Escalated"]
+_PRESSURE_OPTIONS = ["Normal", "At risk", "Dressing applied"]
+
+
+def _render_observations(pathway: dict, pkey: str) -> None:
+    """Nurse observations + auto-calculated NEWS2 score."""
+    nhs = pathway["nhs_number"]
+    st.markdown(
+        '<div class="section-heading">Nurse Observations (NEWS2)</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Record per-shift observations. NEWS2 score calculated automatically. "
+        "Normal ranges shown in parentheses."
+    )
+
+    with st.form(key=f"obs_form_{pkey}"):
+        c1, c2 = st.columns(2)
+        with c1:
+            obs_date  = st.date_input("Date", key=f"obs_date_{pkey}")
+            obs_time  = st.time_input("Time", key=f"obs_time_{pkey}")
+            nurse_name = st.text_input("Nurse Name", key=f"obs_nurse_{pkey}")
+            shift      = st.selectbox("Shift", ["Morning", "Afternoon", "Night"],
+                                      key=f"obs_shift_{pkey}")
+        with c2:
+            st.markdown("**Vital Signs**")
+            temp      = st.number_input("Temperature °C (36.1–37.2)",
+                                         min_value=30.0, max_value=43.0, value=37.0,
+                                         step=0.1, key=f"obs_temp_{pkey}")
+            bp_sys    = st.number_input("Systolic BP mmHg (>100)",
+                                         min_value=50, max_value=300, value=120,
+                                         key=f"obs_bpsys_{pkey}")
+            bp_dia    = st.number_input("Diastolic BP mmHg",
+                                         min_value=30, max_value=200, value=80,
+                                         key=f"obs_bpdia_{pkey}")
+            hr        = st.number_input("Heart Rate bpm (51–90)",
+                                         min_value=20, max_value=250, value=80,
+                                         key=f"obs_hr_{pkey}")
+            rr        = st.number_input("Respiratory Rate /min (12–20)",
+                                         min_value=4, max_value=60, value=16,
+                                         key=f"obs_rr_{pkey}")
+            spo2      = st.number_input("SpO2 % (>=96)",
+                                         min_value=60, max_value=100, value=98,
+                                         key=f"obs_spo2_{pkey}")
+            avpu      = st.selectbox("AVPU", _AVPU_OPTIONS, key=f"obs_avpu_{pkey}")
+            pain      = st.slider("Pain Score (0–10)", 0, 10, 0,
+                                   key=f"obs_pain_{pkey}")
+
+        st.markdown("**Fluid Balance**")
+        fb1, fb2 = st.columns(2)
+        with fb1:
+            fluid_in  = st.number_input("Input (ml) — IV + oral", min_value=0,
+                                         value=0, step=50, key=f"obs_flin_{pkey}")
+        with fb2:
+            fluid_out = st.number_input("Output (ml) — urine + drains", min_value=0,
+                                         value=0, step=50, key=f"obs_flout_{pkey}")
+
+        wc1, wc2 = st.columns(2)
+        with wc1:
+            wound_check = st.selectbox("Wound/Dressing", _WOUND_OPTIONS,
+                                        key=f"obs_wound_{pkey}")
+        with wc2:
+            pressure    = st.selectbox("Pressure Areas", _PRESSURE_OPTIONS,
+                                        key=f"obs_pressure_{pkey}")
+
+        submitted = st.form_submit_button("Save Observations", type="primary")
+
+    if submitted:
+        if not nurse_name.strip():
+            st.warning("Nurse name is required.")
+        else:
+            news2 = _calc_news2(temp, int(rr), int(spo2), int(bp_sys), int(hr), avpu)
+            obs_dt = f"{obs_date} {obs_time}"
+            save_observation(
+                nhs, obs_dt, shift, nurse_name.strip(),
+                temp, int(bp_sys), int(bp_dia), int(hr), int(rr), int(spo2),
+                avpu, pain, int(fluid_in), int(fluid_out),
+                wound_check, pressure, news2,
+            )
+            if news2 >= 7:
+                st.error(
+                    f"NEWS2 = {news2} — URGENT MEDICAL REVIEW REQUIRED. "
+                    "Escalate to senior clinician immediately."
+                )
+            elif news2 >= 5:
+                st.warning(f"NEWS2 = {news2} — Increased monitoring required.")
+            else:
+                st.success(f"NEWS2 = {news2} — Routine monitoring.")
+            st.rerun()
+
+    obs_list = get_observations(nhs)
+    if obs_list:
+        import pandas as pd
+
+        def _news2_badge(score: int) -> str:
+            if score >= 7:  return f"RED ({score})"
+            if score >= 5:  return f"AMBER ({score})"
+            return f"GREEN ({score})"
+
+        rows = []
+        for o in obs_list:
+            rows.append({
+                "Date/Time":  (o.get("obs_date") or "")[:16],
+                "Shift":      o["shift"],
+                "Nurse":      o["nurse_name"],
+                "Temp":       o["temperature"],
+                "BP":         f"{o['bp_systolic']}/{o['bp_diastolic']}",
+                "HR":         o["heart_rate"],
+                "RR":         o["respiratory_rate"],
+                "SpO2%":      o["o2_sats"],
+                "AVPU":       o["avpu"],
+                "Pain":       o["pain_score"],
+                "NEWS2":      _news2_badge(o["news2_score"] or 0),
+                "Fluid In":   o["fluid_input"],
+                "Fluid Out":  o["fluid_output"],
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+        # Alert for any current RED NEWS2
+        latest_news2 = obs_list[0]["news2_score"] or 0
+        if latest_news2 >= 7:
+            st.error(
+                f"LATEST NEWS2 = {latest_news2} — URGENT: Patient requires "
+                "immediate senior review."
+            )
+    else:
+        st.info("No observations recorded yet.")
+
+
+# ── Feature 3 — Medication Administration Record (MAR) ───────────────────────
+
+_ROUTES      = ["Oral", "IV", "IM", "SC", "Topical", "Inhaled", "Other"]
+_FREQUENCIES = ["OD", "BD", "TDS", "QDS", "PRN", "Stat", "Other"]
+_MED_STATUSES = ["Given", "Withheld", "Refused", "Not available"]
+
+
+def _render_medications(pathway: dict, pkey: str) -> None:
+    """Medication Administration Record (MAR)."""
+    nhs = pathway["nhs_number"]
+    st.markdown(
+        '<div class="section-heading">Medication Administration Record (MAR)</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form(key=f"mar_form_{pkey}"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            med_date      = st.date_input("Date", key=f"mar_date_{pkey}")
+            med_time      = st.time_input("Time", key=f"mar_time_{pkey}")
+            drug_name     = st.text_input("Drug Name", key=f"mar_drug_{pkey}",
+                                           placeholder="e.g. Aspirin")
+            dose          = st.text_input("Dose", key=f"mar_dose_{pkey}",
+                                           placeholder="e.g. 75mg")
+        with c2:
+            route         = st.selectbox("Route", _ROUTES, key=f"mar_route_{pkey}")
+            frequency     = st.selectbox("Frequency", _FREQUENCIES, key=f"mar_freq_{pkey}")
+            prescribed_by = st.selectbox(
+                "Prescribed By", [d["name"] for d in _DOCTORS],
+                key=f"mar_prescriber_{pkey}",
+            )
+        with c3:
+            admin_by  = st.text_input("Administered By (nurse)", key=f"mar_admin_{pkey}")
+            status    = st.selectbox("Status", _MED_STATUSES, key=f"mar_status_{pkey}")
+            notes     = st.text_input("Notes (optional)", key=f"mar_notes_{pkey}")
+        submitted = st.form_submit_button("Add to MAR", type="primary")
+
+    if submitted:
+        if not drug_name.strip():
+            st.warning("Drug name is required.")
+        else:
+            save_medication(
+                nhs, f"{med_date} {med_time}", drug_name.strip(),
+                dose, route, frequency, prescribed_by,
+                admin_by.strip(), status, notes.strip(),
+            )
+            st.success(f"Medication added: {drug_name} {dose}")
+            st.rerun()
+
+    meds = get_medications(nhs)
+    if meds:
+        import pandas as pd
+        rows = []
+        for m in meds:
+            rows.append({
+                "Date/Time":    (m.get("med_date") or "")[:16],
+                "Drug":         m["drug_name"],
+                "Dose":         m["dose"],
+                "Route":        m["route"],
+                "Freq":         m["frequency"],
+                "Prescribed By": m["prescribed_by"],
+                "Given By":     m["administered_by"],
+                "Status":       m["status"],
+                "Notes":        m.get("notes", ""),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    else:
+        st.info("No medications recorded yet.")
+
+
+# ── Feature 4 — Safeguarding Flags ───────────────────────────────────────────
+
+_FLAG_TYPES = [
+    "Child protection concern",
+    "Adult safeguarding concern",
+    "Domestic violence indicator",
+    "Mental capacity concern (MCA assessment needed)",
+    "Elderly -- no care package in place",
+    "No fixed abode",
+    "Discharge Against Medical Advice (DAMA)",
+]
+
+_DOCX_MIME = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
+
+def _render_safeguarding(pathway: dict, pkey: str) -> None:
+    """Safeguarding flags management section."""
+    nhs = pathway["nhs_number"]
+    patient = get_patient(nhs) or {}
+    flags   = get_safeguarding_flags(nhs)
+    active  = [f for f in flags if not f.get("resolved")]
+
+    st.markdown(
+        '<div class="section-heading">Safeguarding Flags</div>',
+        unsafe_allow_html=True,
+    )
+
+    if active:
+        for f in active:
+            st.error(
+                f"FLAG: {f['flag_type']} | By: {f['flagged_by']} "
+                f"| {(f.get('flagged_at') or '')[:10]} | {f['details'][:80]}"
+            )
+
+    st.markdown("**Add New Safeguarding Flag**")
+    with st.form(key=f"sg_form_{pkey}"):
+        flag_type  = st.selectbox("Flag Type", _FLAG_TYPES, key=f"sg_type_{pkey}")
+        flagged_by = st.selectbox(
+            "Flagged By", [d["name"] for d in _DOCTORS] + ["Nursing Staff", "Social Worker"],
+            key=f"sg_by_{pkey}",
+        )
+        details      = st.text_area("Details of concern", height=80, key=f"sg_det_{pkey}")
+        action_taken = st.text_area("Action already taken", height=60, key=f"sg_act_{pkey}")
+        referred_to  = st.text_input("Referred to", key=f"sg_ref_{pkey}",
+                                      placeholder="e.g. Surrey County Council Social Services")
+        ref_number   = st.text_input("Reference Number", key=f"sg_refno_{pkey}")
+        urgency      = st.radio("Urgency", ["Urgent", "Non-urgent"],
+                                 horizontal=True, key=f"sg_urg_{pkey}")
+
+        # Extra fields if DAMA selected
+        is_dama = flag_type == "Discharge Against Medical Advice (DAMA)"
+        if is_dama:
+            st.markdown("**DAMA — Additional Information**")
+            patient_statement = st.text_area(
+                "Patient Statement", height=80, key=f"sg_dama_stmt_{pkey}",
+                placeholder="Patient's reason for wishing to leave...",
+            )
+            clinical_risks = st.text_area(
+                "Clinical Risks of Self-Discharge", height=80,
+                key=f"sg_dama_risks_{pkey}",
+            )
+            witness = st.text_input("Witness Name", key=f"sg_dama_wit_{pkey}")
+        else:
+            patient_statement = ""
+            clinical_risks    = ""
+            witness           = ""
+
+        submitted = st.form_submit_button("Raise Flag", type="primary")
+
+    if submitted:
+        if not details.strip():
+            st.warning("Details of concern are required.")
+        else:
+            from datetime import date as _date
+            save_safeguarding_flag(
+                nhs, flag_type, str(_date.today()), flagged_by,
+                details, action_taken, referred_to, ref_number,
+            )
+            st.success(f"Safeguarding flag raised: {flag_type}")
+            st.rerun()
+
+    # Document generation for DAMA / social services referral
+    st.markdown("---")
+    st.markdown("**Generate Documents**")
+    doc_col1, doc_col2 = st.columns(2)
+
+    with doc_col1:
+        if st.button("Generate DAMA Form (.docx)", key=f"dama_btn_{pkey}"):
+            dama_data = {
+                "ward":               pathway["stages"].get(5, {}).get("data", {}).get("ward_name", ""),
+                "hospital":           pathway["stages"].get(5, {}).get("data", {}).get("hospital", "East Surrey Hospital"),
+                "clinician":          pathway["stages"].get(3, {}).get("data", {}).get("assigned_doctor", ""),
+                "patient_statement":  "",
+                "clinical_risks":     "Clinical risks documented in medical notes.",
+                "witness":            "",
+                "discharge_datetime": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            }
+            st.session_state[f"dama_doc_{pkey}"] = (
+                letter_generator.generate_dama_form(nhs, dama_data)
+            )
+        if f"dama_doc_{pkey}" in st.session_state:
+            st.download_button(
+                "Download DAMA Form (.docx)",
+                data=st.session_state[f"dama_doc_{pkey}"],
+                file_name=f"dama_form_{nhs.replace(' ', '_')}.docx",
+                mime=_DOCX_MIME,
+                key=f"dama_dl_{pkey}",
+            )
+
+    with doc_col2:
+        sg_flags_needing_referral = [
+            f for f in active
+            if "protection" in f["flag_type"].lower() or "safeguarding" in f["flag_type"].lower()
+        ]
+        if sg_flags_needing_referral:
+            if st.button("Generate Social Services Referral (.docx)",
+                          key=f"sg_ref_btn_{pkey}"):
+                flag_for_doc = sg_flags_needing_referral[0]
+                flag_for_doc["urgency"] = "Urgent"
+                st.session_state[f"sg_ref_doc_{pkey}"] = (
+                    letter_generator.generate_safeguarding_referral(
+                        nhs, flag_for_doc, patient
+                    )
+                )
+            if f"sg_ref_doc_{pkey}" in st.session_state:
+                dl_col1, dl_col2 = st.columns(2)
+                with dl_col1:
+                    st.download_button(
+                        "Download Referral (.docx)",
+                        data=st.session_state[f"sg_ref_doc_{pkey}"],
+                        file_name=f"safeguarding_referral_{nhs.replace(' ', '_')}.docx",
+                        mime=_DOCX_MIME,
+                        key=f"sg_ref_dl_{pkey}",
+                    )
+                with dl_col2:
+                    if st.button("Email Referral", key=f"sg_ref_email_{pkey}"):
+                        ok, msg = letter_generator.send_letter_email(
+                            to_email=st.session_state.get("smtp_to", ""),
+                            subject=f"[SAFEGUARDING] Surrey Social Services Referral -- NHS {nhs}",
+                            body="Please find attached a safeguarding referral letter.",
+                            docx_bytes=st.session_state[f"sg_ref_doc_{pkey}"],
+                            filename=f"safeguarding_referral_{nhs.replace(' ', '_')}.docx",
+                        )
+                        st.success(msg) if ok else st.warning(msg)
+        else:
+            st.info("Raise a Child Protection or Adult Safeguarding flag to unlock referral letter.")
+
+    if flags:
+        st.markdown(f"**All flags ({len(flags)} total):**")
+        for f in flags:
+            status = "RESOLVED" if f.get("resolved") else "ACTIVE"
+            with st.expander(f"{status} — {f['flag_type']} — {(f.get('flagged_at') or '')[:10]}"):
+                st.markdown(f"**By:** {f['flagged_by']}")
+                st.markdown(f"**Details:** {f['details']}")
+                st.markdown(f"**Action:** {f['action_taken'] or 'None recorded'}")
+                st.markdown(f"**Referred to:** {f['referred_to'] or 'N/A'}")
+                st.markdown(f"**Ref #:** {f['reference_number'] or 'N/A'}")
+
+
+# ── Feature 5 — Discharge Planning Checklist ─────────────────────────────────
+
+_CHECKLIST_ITEMS = [
+    ("summary_completed",   "Discharge summary completed",                         True),
+    ("gp_letter_sent",      "GP letter generated and sent",                        True),
+    ("tto_prescribed",      "TTO medications prescribed",                          True),
+    ("followup_booked",     "Follow-up appointment booked",                        True),
+    ("patient_understands", "Patient understands diagnosis and treatment",          True),
+    ("meds_explained",      "Patient understands medications",                     True),
+    ("transport_arranged",  "Transport arranged",                                  False),
+    ("care_package",        "Care package in place (if needed)",                   False),
+    ("social_services",     "Social services notified (if applicable)",            False),
+    ("nok_informed",        "Next of kin informed",                                False),
+    ("accompanied",         "Patient accompanied on discharge",                    False),
+    ("equipment_provided",  "Medical equipment provided (if needed)",              False),
+    ("community_nursing",   "Community nursing referral made (if needed)",         False),
+]
+
+
+def _render_discharge_checklist_section(pathway: dict, pkey: str) -> bool:
+    """
+    Render the pre-discharge checklist and return True if all required items
+    are checked (safe to allow discharge save).
+    """
+    nhs       = pathway["nhs_number"]
+    checklist = get_discharge_checklist(nhs)
+
+    st.markdown("### Pre-Discharge Checklist")
+    st.caption(
+        "Items marked * are required before discharge can be recorded. "
+        "Tick each item and sign off with your name."
+    )
+
+    with st.form(key=f"checklist_form_{pkey}"):
+        updated = {}
+        for item_key, item_label, required in _CHECKLIST_ITEMS:
+            existing = checklist.get(item_key, {})
+            c1, c2, c3 = st.columns([3, 1, 2])
+            with c1:
+                label = f"{'* ' if required else ''}{item_label}"
+                checked = st.checkbox(
+                    label, value=existing.get("checked", False),
+                    key=f"cl_{item_key}_{pkey}",
+                )
+            with c2:
+                signed_by = st.text_input(
+                    "Signed by", value=existing.get("signed_by", ""),
+                    key=f"cls_{item_key}_{pkey}", label_visibility="collapsed",
+                    placeholder="Initials",
+                )
+            with c3:
+                ts_display = existing.get("timestamp", "")[:16].replace("T", " ")
+                st.caption(ts_display or "Not signed")
+            updated[item_key] = {
+                "checked":   checked,
+                "signed_by": signed_by,
+                "timestamp": (
+                    existing.get("timestamp") or
+                    (datetime.now().isoformat() if checked else "")
+                ),
+            }
+
+        save_cl = st.form_submit_button("Save Checklist", type="primary")
+
+    if save_cl:
+        # Preserve existing timestamps when item was already signed
+        for k, v in updated.items():
+            if not v["checked"]:
+                v["timestamp"] = ""
+            elif not checklist.get(k, {}).get("checked"):
+                v["timestamp"] = datetime.now().isoformat()
+            else:
+                v["timestamp"] = checklist.get(k, {}).get("timestamp", v["timestamp"])
+        update_discharge_checklist(nhs, updated)
+        st.success("Checklist saved.")
+        st.rerun()
+
+    required_done = all(
+        checklist.get(k, {}).get("checked", False)
+        for k, _, req in _CHECKLIST_ITEMS if req
+    )
+    if required_done:
+        st.success("All required items complete — discharge can be recorded.")
+    else:
+        missing = [
+            label for k, label, req in _CHECKLIST_ITEMS
+            if req and not checklist.get(k, {}).get("checked", False)
+        ]
+        st.warning(
+            "Complete required checklist items before saving discharge:\n"
+            + "\n".join(f"- {m}" for m in missing)
+        )
+
+    # Download checklist as Word doc
+    if st.button("Download Checklist (.docx)", key=f"cl_dl_btn_{pkey}"):
+        cl_doc = letter_generator.generate_discharge_checklist_doc(
+            nhs, get_discharge_checklist(nhs), pathway
+        )
+        st.session_state[f"cl_docx_{pkey}"] = cl_doc
+    if f"cl_docx_{pkey}" in st.session_state:
+        st.download_button(
+            "Save Checklist (.docx)",
+            data=st.session_state[f"cl_docx_{pkey}"],
+            file_name=f"discharge_checklist_{nhs.replace(' ','_')}.docx",
+            mime=_DOCX_MIME,
+            key=f"cl_dl_{pkey}",
+        )
+
+    st.markdown("---")
+    return required_done
+
+
+# ── Feature 6 — Pathway Timeline View ────────────────────────────────────────
+
+_TIMELINE_COLOURS = {
+    "triage":      "#005EB8",
+    "pathway":     "#6B7280",
+    "assignment":  "#059669",
+    "referral":    "#7C3AED",
+    "ward_log":    "#0891B2",
+    "observation": "#D97706",
+    "medication":  "#BE185D",
+    "safeguarding": "#DC2626",
+}
+
+
+def _render_timeline(nhs: str, pkey: str) -> None:
+    """Vertical colour-coded patient journey timeline."""
+    with st.expander("Patient Journey Timeline", expanded=False):
+        events = get_patient_timeline(nhs)
+        if not events:
+            st.info("No timeline events yet.")
+            return
+
+        items_html = []
+        for ev in reversed(events):  # newest first
+            colour = _TIMELINE_COLOURS.get(ev["category"], "#6B7280")
+            ts     = (ev["ts"] or "")[:16].replace("T", " ")
+            items_html.append(
+                f'<div style="display:flex;align-items:flex-start;margin-bottom:12px;">'
+                f'  <div style="width:12px;height:12px;border-radius:50%;'
+                f'background:{colour};flex-shrink:0;margin-top:4px;margin-right:12px;"></div>'
+                f'  <div style="flex:1;border-left:2px solid {colour};'
+                f'padding-left:10px;padding-bottom:8px;">'
+                f'    <div style="font-size:0.78rem;color:#6B7280;">{ts}</div>'
+                f'    <div style="font-weight:700;color:{colour};font-size:0.9rem;">'
+                f'{ev["stage"]}</div>'
+                f'    <div style="font-size:0.88rem;color:#374151;">{ev["action"]}</div>'
+                f'    <div style="font-size:0.78rem;color:#9CA3AF;">{ev["clinician"]}</div>'
+                f'  </div>'
+                f'</div>'
+            )
+
+        legend_html = "".join(
+            f'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
+            f'background:{col};margin-right:4px;"></span>'
+            f'<span style="font-size:0.78rem;margin-right:12px;">{cat.replace("_"," ").title()}</span>'
+            for cat, col in _TIMELINE_COLOURS.items()
+        )
+
+        st.markdown(
+            f'<div style="padding:8px;background:#F0F4F5;border-radius:6px;'
+            f'margin-bottom:12px;">{legend_html}</div>'
+            f'<div style="max-height:500px;overflow-y:auto;padding:12px;'
+            f'background:#ffffff;border:1px solid #AEB7BD;border-radius:6px;">'
+            + "".join(items_html)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.caption(f"Total events: {len(events)}")
 
 
 # ── Letter section (rendered below stages) ────────────────────────────────────
@@ -688,6 +1355,18 @@ def render_pathway() -> None:
     stages  = pathway["stages"]
     cur     = pathway["current_stage"]
 
+    # Safeguarding banner — shown at top if any active flags
+    active_flags = [
+        f for f in get_safeguarding_flags(selected_nhs)
+        if not f.get("resolved")
+    ]
+    if active_flags:
+        st.error(
+            f"SAFEGUARDING ALERT — {len(active_flags)} active flag(s) for this patient:"
+        )
+        for f in active_flags:
+            st.error(f"  * {f['flag_type']} | {f['flagged_by']} | {f['details'][:80]}")
+
     # Stepper
     _render_stepper(stages, cur)
 
@@ -756,8 +1435,34 @@ def render_pathway() -> None:
             else:
                 st.caption("Not yet reached. Complete earlier stages to unlock.")
 
+    # ── Ward Management (Path A features — visible once admitted) ────────────
+    if cur >= 5 or stages.get(5, {}).get("status") == "complete":
+        st.markdown("---")
+        st.markdown(
+            '<div class="section-heading">Ward Management</div>',
+            unsafe_allow_html=True,
+        )
+        wm_tab1, wm_tab2, wm_tab3, wm_tab4 = st.tabs([
+            "Daily Ward Log",
+            "Nurse Observations (NEWS2)",
+            "Medication Record (MAR)",
+            "Safeguarding",
+        ])
+        with wm_tab1:
+            _render_ward_log(pathway, pkey)
+        with wm_tab2:
+            _render_observations(pathway, pkey)
+        with wm_tab3:
+            _render_medications(pathway, pkey)
+        with wm_tab4:
+            _render_safeguarding(pathway, pkey)
+
     # ── Letters ──────────────────────────────────────────────────────────────
     _render_letters_section(pathway, pkey)
+
+    # ── Patient Journey Timeline ──────────────────────────────────────────────
+    st.markdown("---")
+    _render_timeline(selected_nhs, pkey)
 
     # ── Full pathway export ──────────────────────────────────────────────────
     st.markdown("---")

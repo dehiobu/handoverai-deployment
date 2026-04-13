@@ -101,6 +101,79 @@ def init_db() -> None:
                 performed_by TEXT DEFAULT 'system',
                 created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS ward_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                nhs_number  TEXT,
+                log_date    TEXT,
+                shift       TEXT,
+                clinician   TEXT,
+                role        TEXT,
+                subjective  TEXT DEFAULT '',
+                objective   TEXT DEFAULT '',
+                assessment  TEXT DEFAULT '',
+                plan        TEXT DEFAULT '',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS nurse_observations (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                nhs_number       TEXT,
+                obs_date         TEXT,
+                shift            TEXT,
+                nurse_name       TEXT,
+                temperature      REAL,
+                bp_systolic      INTEGER,
+                bp_diastolic     INTEGER,
+                heart_rate       INTEGER,
+                respiratory_rate INTEGER,
+                o2_sats          INTEGER,
+                avpu             TEXT,
+                pain_score       INTEGER DEFAULT 0,
+                fluid_input      INTEGER DEFAULT 0,
+                fluid_output     INTEGER DEFAULT 0,
+                wound_check      TEXT DEFAULT 'Intact',
+                pressure_areas   TEXT DEFAULT 'Normal',
+                news2_score      INTEGER DEFAULT 0,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS medications (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                nhs_number      TEXT,
+                med_date        TEXT,
+                drug_name       TEXT,
+                dose            TEXT,
+                route           TEXT,
+                frequency       TEXT,
+                prescribed_by   TEXT,
+                administered_by TEXT,
+                status          TEXT DEFAULT 'Given',
+                notes           TEXT DEFAULT '',
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS safeguarding_flags (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                nhs_number       TEXT,
+                flag_type        TEXT,
+                flagged_at       TEXT,
+                flagged_by       TEXT,
+                details          TEXT DEFAULT '',
+                action_taken     TEXT DEFAULT '',
+                referred_to      TEXT DEFAULT '',
+                reference_number TEXT DEFAULT '',
+                resolved         INTEGER DEFAULT 0,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS discharge_checklist (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                nhs_number     TEXT UNIQUE,
+                checklist_data TEXT DEFAULT '{}',
+                updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_by     TEXT DEFAULT 'system'
+            );
             """
         )
 
@@ -341,6 +414,353 @@ def search_patients(query: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Session-state loader
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Ward log
+# ---------------------------------------------------------------------------
+
+def save_ward_log(nhs_number: str, log_date: str, shift: str, clinician: str,
+                  role: str, subjective: str, objective: str,
+                  assessment: str, plan: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO ward_logs
+                (nhs_number, log_date, shift, clinician, role,
+                 subjective, objective, assessment, plan)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (nhs_number, log_date, shift, clinician, role,
+             subjective, objective, assessment, plan),
+        )
+
+
+def get_ward_logs(nhs_number: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ward_logs WHERE nhs_number=? ORDER BY created_at DESC",
+            (nhs_number,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Nurse observations
+# ---------------------------------------------------------------------------
+
+def save_observation(nhs_number: str, obs_date: str, shift: str,
+                     nurse_name: str, temperature: float, bp_systolic: int,
+                     bp_diastolic: int, heart_rate: int, respiratory_rate: int,
+                     o2_sats: int, avpu: str, pain_score: int,
+                     fluid_input: int, fluid_output: int,
+                     wound_check: str, pressure_areas: str,
+                     news2_score: int) -> None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO nurse_observations
+                (nhs_number, obs_date, shift, nurse_name, temperature,
+                 bp_systolic, bp_diastolic, heart_rate, respiratory_rate,
+                 o2_sats, avpu, pain_score, fluid_input, fluid_output,
+                 wound_check, pressure_areas, news2_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (nhs_number, obs_date, shift, nurse_name, temperature,
+             bp_systolic, bp_diastolic, heart_rate, respiratory_rate,
+             o2_sats, avpu, pain_score, fluid_input, fluid_output,
+             wound_check, pressure_areas, news2_score),
+        )
+
+
+def get_observations(nhs_number: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM nurse_observations
+            WHERE nhs_number=? ORDER BY created_at DESC
+            """,
+            (nhs_number,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Medications
+# ---------------------------------------------------------------------------
+
+def save_medication(nhs_number: str, med_date: str, drug_name: str,
+                    dose: str, route: str, frequency: str,
+                    prescribed_by: str, administered_by: str,
+                    status: str, notes: str = "") -> None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO medications
+                (nhs_number, med_date, drug_name, dose, route, frequency,
+                 prescribed_by, administered_by, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (nhs_number, med_date, drug_name, dose, route, frequency,
+             prescribed_by, administered_by, status, notes),
+        )
+
+
+def get_medications(nhs_number: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM medications WHERE nhs_number=? ORDER BY created_at DESC",
+            (nhs_number,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Safeguarding flags
+# ---------------------------------------------------------------------------
+
+def save_safeguarding_flag(nhs_number: str, flag_type: str, flagged_at: str,
+                           flagged_by: str, details: str = "",
+                           action_taken: str = "", referred_to: str = "",
+                           reference_number: str = "") -> None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO safeguarding_flags
+                (nhs_number, flag_type, flagged_at, flagged_by, details,
+                 action_taken, referred_to, reference_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (nhs_number, flag_type, flagged_at, flagged_by, details,
+             action_taken, referred_to, reference_number),
+        )
+
+
+def get_safeguarding_flags(nhs_number: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM safeguarding_flags
+            WHERE nhs_number=? ORDER BY created_at DESC
+            """,
+            (nhs_number,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Discharge checklist
+# ---------------------------------------------------------------------------
+
+def update_discharge_checklist(nhs_number: str, checklist_dict: dict,
+                                updated_by: str = "system") -> None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO discharge_checklist (nhs_number, checklist_data, updated_at, updated_by)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(nhs_number) DO UPDATE SET
+                checklist_data = excluded.checklist_data,
+                updated_at     = excluded.updated_at,
+                updated_by     = excluded.updated_by
+            """,
+            (nhs_number, json.dumps(checklist_dict),
+             datetime.now().isoformat(), updated_by),
+        )
+
+
+def get_discharge_checklist(nhs_number: str) -> dict:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT checklist_data FROM discharge_checklist WHERE nhs_number=?",
+            (nhs_number,),
+        ).fetchone()
+        if row:
+            return json.loads(row["checklist_data"] or "{}")
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Ward overview (for dashboard)
+# ---------------------------------------------------------------------------
+
+def get_ward_overview_stats() -> dict:
+    """Aggregate ward stats for the dashboard ward overview section."""
+    with _conn() as conn:
+        # Patients admitted but not discharged = have stage 5 complete, stage 10 not complete
+        admitted = conn.execute(
+            """
+            SELECT COUNT(DISTINCT p5.nhs_number)
+            FROM pathway_stages p5
+            LEFT JOIN pathway_stages p10
+                ON p5.nhs_number = p10.nhs_number AND p10.stage_number = 10
+            WHERE p5.stage_number = 5 AND p5.status = 'complete'
+              AND (p10.status IS NULL OR p10.status != 'complete')
+            """
+        ).fetchone()[0]
+
+        # Latest NEWS2 per patient — count RED alerts (score >= 7)
+        obs_rows = conn.execute(
+            """
+            SELECT nhs_number, news2_score
+            FROM nurse_observations
+            WHERE id IN (
+                SELECT MAX(id) FROM nurse_observations GROUP BY nhs_number
+            )
+            """
+        ).fetchall()
+        news2_scores = [r["news2_score"] for r in obs_rows if r["news2_score"] is not None]
+        avg_news2    = sum(news2_scores) / len(news2_scores) if news2_scores else 0
+        red_alerts   = sum(1 for s in news2_scores if s >= 7)
+
+        # Safeguarding flags count (unresolved)
+        safeguarding = conn.execute(
+            "SELECT COUNT(*) FROM safeguarding_flags WHERE resolved=0"
+        ).fetchone()[0]
+
+        # Awaiting discharge: stage 9 complete, stage 10 pending
+        awaiting_dc = conn.execute(
+            """
+            SELECT COUNT(DISTINCT p9.nhs_number)
+            FROM pathway_stages p9
+            LEFT JOIN pathway_stages p10
+                ON p9.nhs_number = p10.nhs_number AND p10.stage_number = 10
+            WHERE p9.stage_number = 9 AND p9.status = 'complete'
+              AND (p10.status IS NULL OR p10.status != 'complete')
+            """
+        ).fetchone()[0]
+
+        # Average length of stay for discharged patients
+        los_rows = conn.execute(
+            """
+            SELECT stage_data FROM pathway_stages
+            WHERE stage_number = 8 AND status = 'complete'
+            """
+        ).fetchall()
+        los_values = []
+        for row in los_rows:
+            data = json.loads(row["stage_data"] or "{}")
+            los_str = data.get("length_of_stay", "")
+            if "day" in str(los_str):
+                try:
+                    los_values.append(int(str(los_str).split()[0]))
+                except (ValueError, IndexError):
+                    pass
+        avg_los = sum(los_values) / len(los_values) if los_values else 0
+
+        return {
+            "current_inpatients": admitted,
+            "avg_news2":          round(avg_news2, 1),
+            "red_news2_alerts":   red_alerts,
+            "safeguarding_flags": safeguarding,
+            "awaiting_discharge": awaiting_dc,
+            "avg_los_days":       round(avg_los, 1),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Timeline helper — all events for a patient in chronological order
+# ---------------------------------------------------------------------------
+
+def get_patient_timeline(nhs_number: str) -> list[dict]:
+    """Aggregate all datable events for a patient, sorted by timestamp."""
+    events: list[dict] = []
+
+    with _conn() as conn:
+        # Triage
+        for r in conn.execute(
+            "SELECT * FROM triage_sessions WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["created_at"], "stage": "Triage",
+                "action": f"AI triage: {r['triage_decision']} -- {r['urgency']}",
+                "clinician": "AI System", "category": "triage",
+            })
+
+        # Pathway stages
+        for r in conn.execute(
+            "SELECT * FROM pathway_stages WHERE nhs_number=? AND status='complete' ORDER BY stage_number",
+            (nhs_number,),
+        ).fetchall():
+            data = json.loads(r["stage_data"] or "{}")
+            summary = ", ".join(
+                f"{k}: {v}" for k, v in list(data.items())[:2] if v
+            )
+            events.append({
+                "ts": r["updated_at"], "stage": r["stage_name"],
+                "action": summary[:120] or r["stage_name"] + " completed",
+                "clinician": r["updated_by"], "category": "pathway",
+            })
+
+        # Assignments
+        for r in conn.execute(
+            "SELECT * FROM assignments WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["assigned_at"], "stage": "Assignment",
+                "action": f"Assigned to {r['doctor_name']} ({r['specialty']})",
+                "clinician": r["doctor_name"], "category": "assignment",
+            })
+
+        # Referrals
+        for r in conn.execute(
+            "SELECT * FROM referrals WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["created_at"], "stage": "Referral",
+                "action": f"{r['referral_type'].title()}: {r['referral_name']} ({r['urgency']})",
+                "clinician": "Referring Clinician", "category": "referral",
+            })
+
+        # Ward logs
+        for r in conn.execute(
+            "SELECT * FROM ward_logs WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["created_at"], "stage": "Ward Round",
+                "action": f"{r['shift']} -- {r['clinician']} ({r['role']}): {r['assessment'][:80]}",
+                "clinician": r["clinician"], "category": "ward_log",
+            })
+
+        # Observations
+        for r in conn.execute(
+            "SELECT * FROM nurse_observations WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            alert = " [RED ALERT]" if r["news2_score"] >= 7 else ""
+            events.append({
+                "ts": r["created_at"], "stage": "Observations",
+                "action": (
+                    f"{r['shift']} -- {r['nurse_name']}: "
+                    f"NEWS2={r['news2_score']}{alert}, "
+                    f"T={r['temperature']}C, HR={r['heart_rate']}, "
+                    f"RR={r['respiratory_rate']}, SpO2={r['o2_sats']}%"
+                ),
+                "clinician": r["nurse_name"], "category": "observation",
+            })
+
+        # Medications
+        for r in conn.execute(
+            "SELECT * FROM medications WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["created_at"], "stage": "Medication",
+                "action": f"{r['drug_name']} {r['dose']} {r['route']} {r['frequency']} -- {r['status']}",
+                "clinician": r["administered_by"] or r["prescribed_by"],
+                "category": "medication",
+            })
+
+        # Safeguarding
+        for r in conn.execute(
+            "SELECT * FROM safeguarding_flags WHERE nhs_number=?", (nhs_number,)
+        ).fetchall():
+            events.append({
+                "ts": r["created_at"], "stage": "Safeguarding",
+                "action": f"FLAG: {r['flag_type']} -- {r['details'][:80]}",
+                "clinician": r["flagged_by"], "category": "safeguarding",
+            })
+
+    events.sort(key=lambda e: (e["ts"] or ""), reverse=False)
+    return events
+
 
 def load_pathways_from_db() -> dict:
     """

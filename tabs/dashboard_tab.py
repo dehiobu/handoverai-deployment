@@ -6,7 +6,7 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src.database import get_dashboard_stats, get_all_triage_sessions
+from src.database import get_dashboard_stats, get_all_triage_sessions, get_ward_overview_stats
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
 _STAGE_LABELS = {
@@ -239,6 +239,26 @@ def render_executive_dashboard() -> None:
                 file_name="gp_triage_audit_log.csv",
                 mime="text/csv",
             )
+
+    # ── Ward Overview (Path A) ────────────────────────────────────────────────
+    ward = get_ward_overview_stats()
+    if ward:
+        st.markdown(
+            '<div class="section-heading">Ward Overview</div>',
+            unsafe_allow_html=True,
+        )
+        w1, w2, w3, w4, w5, w6 = st.columns(6)
+        w1.metric("Current Inpatients",  ward.get("current_inpatients", 0))
+        w2.metric("Avg NEWS2",           ward.get("avg_news2", "—"))
+        w3.metric(
+            "RED NEWS2 Alerts",
+            ward.get("red_news2_alerts", 0),
+            delta="URGENT" if ward.get("red_news2_alerts", 0) > 0 else None,
+            delta_color="inverse",
+        )
+        w4.metric("Safeguarding Flags",  ward.get("safeguarding_flags", 0))
+        w5.metric("Awaiting Discharge",  ward.get("awaiting_discharge", 0))
+        w6.metric("Avg LoS (days)",      ward.get("avg_los_days", "—"))
 
     # ── Pathway Overview ──────────────────────────────────────────────────────
     pathways = st.session_state.get("pathways", {})

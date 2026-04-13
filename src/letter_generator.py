@@ -732,6 +732,291 @@ def send_letter_email(
         return False, str(exc)
 
 
+# ── Ward / Path A letters ──────────────────────────────────────────────────────
+
+def generate_dama_form(nhs_number: str, data: dict) -> bytes:
+    """
+    Generate a Discharge Against Medical Advice (DAMA) form.
+
+    Args:
+        nhs_number: Patient NHS number.
+        data: Dict with keys: patient_statement, clinical_risks,
+              witness, clinician, discharge_datetime.
+    Returns:
+        bytes: .docx content.
+    """
+    doc = _new_doc()
+    _add_letterhead(doc)
+    _add_footer(doc)
+
+    _shaded_para(
+        doc, "DISCHARGE AGAINST MEDICAL ADVICE (DAMA)",
+        fill_hex="FDECEA", border_hex="DA291C", colour=_RED, size=13,
+    )
+    _para(doc, datetime.now().strftime("%d %B %Y"), space_before=6)
+    _para(doc, "")
+
+    _section_heading(doc, "Patient Details")
+    _kv_table(doc, [
+        ("NHS Number",       nhs_number),
+        ("Date / Time",      data.get("discharge_datetime",
+                                      datetime.now().strftime("%d/%m/%Y %H:%M"))),
+        ("Ward",             data.get("ward", "N/A")),
+        ("Discharging from", data.get("hospital", "East Surrey Hospital")),
+    ])
+
+    _section_heading(doc, "Clinical Risks of Self-Discharge")
+    _para(
+        doc,
+        data.get("clinical_risks",
+                 "The clinical team has advised the patient of the risks of leaving "
+                 "before treatment is complete."),
+        space_after=6,
+    )
+
+    _section_heading(doc, "Patient Statement")
+    p = doc.add_paragraph()
+    pPr = p._p.get_or_add_pPr()
+    shd = OxmlElement("w:shd"); shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto"); shd.set(qn("w:fill"), "FFF8E1")
+    pPr.append(shd)
+    _run(p, data.get("patient_statement",
+                     "I understand the clinical risks and wish to leave of my own volition."),
+         size=11)
+    doc.add_paragraph()
+
+    _section_heading(doc, "Declarations")
+    for stmt in [
+        "The patient has been informed of the potential risks of self-discharge.",
+        "The patient has been offered alternative management options.",
+        "The patient has been advised to return immediately if their condition worsens.",
+        "The patient has been given NHS 111 and 999 contact details.",
+        "The patient has capacity to make this decision (MCA 2005).",
+    ]:
+        p = doc.add_paragraph(style="List Bullet")
+        _run(p, stmt, size=10)
+    doc.add_paragraph()
+
+    _section_heading(doc, "Signatures")
+    sig_table = doc.add_table(rows=3, cols=4)
+    sig_table.style = "Table Grid"
+    headers = ["Role", "Name", "Signature", "Date / Time"]
+    for i, h in enumerate(headers):
+        _run(sig_table.rows[0].cells[i].paragraphs[0], h, bold=True, size=10)
+    roles = [
+        ("Discharging Clinician", data.get("clinician", ""), "", ""),
+        ("Witness",               data.get("witness", ""),   "", ""),
+    ]
+    for row_i, (role, name, sig, ts) in enumerate(roles, 1):
+        cells = sig_table.rows[row_i].cells
+        for cell_i, val in enumerate([role, name, sig, ts]):
+            _run(cells[cell_i].paragraphs[0], val, size=10)
+
+    doc.add_paragraph()
+    _para(
+        doc,
+        "A copy of this form must be placed in the patient's medical notes "
+        "and a copy offered to the patient.",
+        italic=True, size=9, colour=_GREY,
+    )
+
+    p_disc = doc.add_paragraph()
+    _run(p_disc, _DISCLAIMER, size=9, italic=True, colour=_GREY)
+    return _to_bytes(doc)
+
+
+def generate_safeguarding_referral(nhs_number: str, flag_data: dict,
+                                   patient_data: dict) -> bytes:
+    """
+    Generate a Surrey County Council Social Services safeguarding referral.
+
+    Args:
+        nhs_number: Patient NHS number.
+        flag_data:  Dict with: flag_type, details, action_taken, referred_to,
+                    flagged_by, flagged_at, urgency.
+        patient_data: Dict with: age, gender (patient info).
+    Returns:
+        bytes: .docx content.
+    """
+    doc = _new_doc()
+    _add_letterhead(doc)
+    _add_footer(doc)
+
+    flag_type = flag_data.get("flag_type", "Safeguarding Concern")
+    is_child  = "child" in flag_type.lower()
+    urgency   = flag_data.get("urgency", "Non-urgent")
+
+    fill   = "FDECEA" if urgency.lower() == "urgent" else "FFF8E1"
+    border = "DA291C" if urgency.lower() == "urgent" else "FFB81C"
+    colour = _RED     if urgency.lower() == "urgent" else _AMBER
+
+    _shaded_para(
+        doc,
+        f"SAFEGUARDING REFERRAL -- {urgency.upper()}",
+        fill_hex=fill, border_hex=border, colour=colour, size=13,
+    )
+
+    _para(doc, datetime.now().strftime("%d %B %Y"), space_before=6)
+    _para(doc, "")
+
+    # Recipient block
+    _para(doc, "Surrey County Council", bold=True)
+    _para(doc, "Children's Services" if is_child else "Adult Social Care", space_after=1)
+    _para(doc, "County Hall, Penrhyn Road, Kingston upon Thames, KT1 2DW", space_after=1)
+    _para(doc, "Tel: 0300 200 1006  |  www.surreycc.gov.uk/adultsocialcare", space_after=1)
+    _para(doc, "")
+
+    p_re = doc.add_paragraph()
+    p_re.paragraph_format.space_after = Pt(8)
+    _run(p_re, "Re: ", bold=True, colour=_BLUE)
+    ref_label = (
+        f"Child Protection Referral -- Anonymised"
+        if is_child else
+        f"Adult Safeguarding Referral -- NHS {nhs_number}"
+    )
+    _run(p_re, ref_label)
+
+    _para(doc,
+          "Dear Social Care Team,"
+          if is_child else
+          "Dear Adult Social Care Team,")
+    _para(
+        doc,
+        "I am writing to make a formal safeguarding referral regarding the "
+        "above patient, currently under the care of Surrey and Sussex "
+        "Healthcare NHS Trust.",
+    )
+
+    _section_heading(doc, "Referral Details")
+    _kv_table(doc, [
+        ("NHS Number",       "Withheld (child protection)" if is_child else nhs_number),
+        ("Patient Age",      patient_data.get("age", "N/A")),
+        ("Patient Gender",   patient_data.get("gender", "N/A")),
+        ("Flag Type",        flag_type),
+        ("Urgency",          urgency),
+        ("Referred On",      flag_data.get("flagged_at", datetime.now().strftime("%d/%m/%Y"))),
+        ("Referring Clinician", flag_data.get("flagged_by", "N/A")),
+        ("Referred To",      flag_data.get("referred_to", "Surrey County Council")),
+    ])
+
+    _section_heading(doc, "Nature of Concern")
+    _para(doc, flag_data.get("details", "See clinical notes."), space_after=6)
+
+    _section_heading(doc, "Action Already Taken")
+    _para(doc, flag_data.get("action_taken", "None recorded."), space_after=6)
+
+    _section_heading(doc, "Recommended Response")
+    if is_child:
+        recs = [
+            "Immediate S17 / S47 assessment to be considered.",
+            "Notify Police Public Protection Unit if criminal offence suspected.",
+            "Strategy discussion to be arranged within 24 hours.",
+        ]
+    else:
+        recs = [
+            "Section 42 enquiry to be considered under Care Act 2014.",
+            "Risk assessment and safeguarding plan to be formulated.",
+            "Multi-agency safeguarding meeting to be arranged if required.",
+        ]
+    for r in recs:
+        p = doc.add_paragraph(style="List Bullet")
+        _run(p, r, size=10)
+
+    _para(doc, "")
+    _para(doc, "Yours sincerely,")
+    _para(doc, "")
+    _para(doc, flag_data.get("flagged_by", "Referring Clinician"), bold=True)
+    _para(doc, _TRUST_NAME, size=10, colour=_DARK)
+    _para(doc, "GMC Number: [to be completed by authorising clinician]", size=9, colour=_GREY)
+
+    doc.add_paragraph()
+    p_disc = doc.add_paragraph()
+    _run(p_disc, _DISCLAIMER, size=9, italic=True, colour=_GREY)
+    return _to_bytes(doc)
+
+
+def generate_discharge_checklist_doc(nhs_number: str, checklist: dict,
+                                     pathway: dict) -> bytes:
+    """Generate a signed discharge checklist Word document."""
+    doc = _new_doc()
+    _add_letterhead(doc)
+    _add_footer(doc)
+
+    _para(doc, "DISCHARGE PLANNING CHECKLIST", bold=True, size=14,
+          colour=_BLUE, space_before=8)
+    _blue_line(doc)
+
+    s3 = pathway["stages"].get(3, {}).get("data", {})
+    s5 = pathway["stages"].get(5, {}).get("data", {})
+
+    _kv_table(doc, [
+        ("NHS Number",    nhs_number),
+        ("Ward",          s5.get("ward_name", "N/A")),
+        ("Consultant",    s3.get("assigned_doctor", "N/A")),
+        ("Generated",     datetime.now().strftime("%d %B %Y %H:%M")),
+    ])
+
+    _section_heading(doc, "Pre-Discharge Checklist")
+
+    table = doc.add_table(rows=1, cols=4)
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    for i, h in enumerate(["Item", "Status", "Signed By", "Time"]):
+        _run(hdr[i].paragraphs[0], h, bold=True, size=10, colour=_DARK)
+
+    for item_key, item_label in [
+        ("summary_completed",   "Discharge summary completed"),
+        ("gp_letter_sent",      "GP letter generated and sent"),
+        ("tto_prescribed",      "TTO medications prescribed"),
+        ("followup_booked",     "Follow-up appointment booked"),
+        ("patient_understands", "Patient understands diagnosis & treatment"),
+        ("meds_explained",      "Patient understands medications"),
+        ("transport_arranged",  "Transport arranged"),
+        ("care_package",        "Care package in place (if applicable)"),
+        ("social_services",     "Social services notified (if applicable)"),
+        ("nok_informed",        "Next of kin informed"),
+        ("accompanied",         "Patient accompanied on discharge"),
+        ("equipment_provided",  "Medical equipment provided (if applicable)"),
+        ("community_nursing",   "Community nursing referral made (if applicable)"),
+    ]:
+        item_data = checklist.get(item_key, {})
+        checked   = item_data.get("checked", False)
+        signed_by = item_data.get("signed_by", "")
+        timestamp = (item_data.get("timestamp") or "")[:16].replace("T", " ")
+
+        row = table.add_row()
+        cells = row.cells
+        _run(cells[0].paragraphs[0], item_label, size=10)
+        status_txt = "COMPLETE" if checked else "PENDING"
+        status_col = _GREEN if checked else _AMBER
+        _run(cells[1].paragraphs[0], status_txt, bold=True, size=10, colour=status_col)
+        _run(cells[2].paragraphs[0], signed_by, size=10)
+        _run(cells[3].paragraphs[0], timestamp, size=10)
+
+    doc.add_paragraph()
+    all_done = all(
+        checklist.get(k, {}).get("checked", False)
+        for k in ["summary_completed", "gp_letter_sent", "tto_prescribed",
+                  "followup_booked", "patient_understands", "meds_explained"]
+    )
+    status_text = (
+        "ALL REQUIRED ITEMS COMPLETE -- Safe to discharge."
+        if all_done else
+        "CHECKLIST INCOMPLETE -- Please complete all required items before discharge."
+    )
+    _shaded_para(
+        doc, status_text,
+        fill_hex="E8F5E9" if all_done else "FDECEA",
+        border_hex="009639" if all_done else "DA291C",
+        colour=_GREEN if all_done else _RED,
+        size=11,
+    )
+
+    p_disc = doc.add_paragraph()
+    _run(p_disc, _DISCLAIMER, size=9, italic=True, colour=_GREY)
+    return _to_bytes(doc)
+
+
 # ── Internal ───────────────────────────────────────────────────────────────────
 
 def _to_bytes(doc: Document) -> bytes:
