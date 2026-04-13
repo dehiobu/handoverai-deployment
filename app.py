@@ -21,6 +21,7 @@ from ui.sidebar import render_sidebar
 from tabs.triage_tab import render_triage
 from tabs.dashboard_tab import render_executive_dashboard
 from tabs.governance_tab import render_governance_panel
+from tabs.pathway_tab import render_pathway
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Page config
@@ -189,6 +190,8 @@ if "initialized" not in st.session_state:
     st.session_state.triage_history = []
     st.session_state.audit_log = []
     st.session_state.last_result = None
+    st.session_state.pathways = {}
+    st.session_state.show_new_pathway_form = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -268,16 +271,19 @@ def main() -> None:
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     st.markdown("---")
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Triage",
+        "Patient Pathway",
         "Dashboard",
         "About & Governance",
     ])
     with tab1:
         render_triage()
     with tab2:
-        render_executive_dashboard()
+        render_pathway()
     with tab3:
+        render_executive_dashboard()
+    with tab4:
         render_governance_panel()
 
 

@@ -6,6 +6,13 @@ import json
 import pandas as pd
 import streamlit as st
 
+# Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
+_STAGE_LABELS = {
+    1: "Presentation", 2: "Triage",    3: "Assignment", 4: "Referral",
+    5: "Admission",    6: "Diagnosis", 7: "Treatment",  8: "Outcome",
+    9: "Aftercare",   10: "Discharge",
+}
+
 # Phase 5 — baseline for time-saved calculation
 MANUAL_TRIAGE_MINUTES = 15
 
@@ -183,3 +190,63 @@ def render_executive_dashboard() -> None:
                 file_name="gp_triage_audit_log.csv",
                 mime="text/csv",
             )
+
+    # ── Pathway Overview ──────────────────────────────────────────────────────
+    pathways = st.session_state.get("pathways", {})
+    if not pathways:
+        return
+
+    st.markdown(
+        '<div class="section-heading">Patient Pathway Overview</div>',
+        unsafe_allow_html=True,
+    )
+
+    # KPI row
+    total_p    = len(pathways)
+    discharged = sum(
+        1 for p in pathways.values()
+        if p["stages"].get(10, {}).get("status") == "complete"
+    )
+    stage_counts: dict[int, int] = {}
+    for p in pathways.values():
+        c = p["current_stage"]
+        stage_counts[c] = stage_counts.get(c, 0) + 1
+    bottleneck = max(stage_counts, key=stage_counts.get) if stage_counts else None
+
+    pk1, pk2, pk3, pk4 = st.columns(4)
+    pk1.metric("Active Pathways",  total_p)
+    pk2.metric("Discharged",       discharged)
+    pk3.metric("Discharge Rate",   f"{discharged / total_p * 100:.0f}%" if total_p else "0%")
+    pk4.metric(
+        "Bottleneck Stage",
+        f"Stage {bottleneck}: {_STAGE_LABELS.get(bottleneck, 'N/A')}"
+        if bottleneck else "—",
+    )
+
+    # Per-pathway table
+    rows = []
+    for nhs, p in pathways.items():
+        completed = sum(1 for s in p["stages"].values() if s.get("status") == "complete")
+        s6_data   = p["stages"].get(6, {}).get("data", {})
+        rows.append({
+            "NHS Number":     nhs,
+            "Current Stage":  f"{p['current_stage']} — {_STAGE_LABELS.get(p['current_stage'], 'Discharge')}",
+            "Stages Complete": f"{completed}/10",
+            "Diagnosis":      s6_data.get("confirmed_diagnosis", "—"),
+            "Discharged":     "Yes" if p["stages"].get(10, {}).get("status") == "complete" else "No",
+            "Created":        p["created_at"][:16].replace("T", " "),
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    # Stage distribution bar chart
+    if len(pathways) > 1:
+        st.subheader("Pathway Stage Distribution")
+        dist_data = {
+            _STAGE_LABELS.get(s, f"Stage {s}"): cnt
+            for s, cnt in sorted(stage_counts.items())
+        }
+        stage_df = pd.DataFrame(
+            {"Patients": list(dist_data.values())},
+            index=list(dist_data.keys()),
+        )
+        st.bar_chart(stage_df)

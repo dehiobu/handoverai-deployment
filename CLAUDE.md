@@ -10,8 +10,9 @@ GP Triage POC is a **Retrieval-Augmented Generation (RAG)** prototype for GP med
 - **Retrieval**: Finds top-5 similar cases from 447 AI-validated clinical cases in ChromaDB
 - **Generation**: GPT-4o synthesizes a triage decision (RED/AMBER/GREEN), urgency, reasoning, red flags, NICE references, and recommended actions
 - **Explainability**: Top-3 matched cases shown with similarity scores and plain-English confidence
-- **Interface**: Three-tab Streamlit UI — Triage, Executive Dashboard, About & Governance
+- **Interface**: Four-tab Streamlit UI — Triage, Patient Pathway, Dashboard, About & Governance
 - **Audit**: Full session audit log exportable as JSON or CSV; clinician overrides with dropdown reason
+- **Pathway Tracker**: 10-stage end-to-end clinical pathway from presentation to discharge
 
 ### Showcase Phases
 
@@ -23,6 +24,7 @@ GP Triage POC is a **Retrieval-Augmented Generation (RAG)** prototype for GP med
 | Phase 4 | Demo scenarios — 5 pre-loaded clinical scenarios auto-fill the input |
 | Phase 5 | Executive metrics dashboard — KPIs, distribution chart, override trend, time-saved estimate |
 | Phase 6 | Governance panel — how AI works, data handling, audit capabilities, FHIR roadmap, approvals checklist |
+| Phase 7 | Patient Pathway Tracker — 10-stage end-to-end pathway (Presentation → Triage → Assignment → Referral → Admission → Diagnosis → Treatment → Outcome → Aftercare → Discharge) with auto-fill, clinical letters, and full JSON/CSV export |
 
 ## Folder Structure
 
@@ -48,8 +50,9 @@ gp-triage-poc/
 ├── tabs/
 │   ├── __init__.py
 │   ├── triage_tab.py           # Triage tab UI and logic (Phases 1-4)
-│   ├── dashboard_tab.py        # Executive metrics dashboard tab (Phases 3 & 5)
-│   └── governance_tab.py       # About & Governance tab (Phase 6)
+│   ├── dashboard_tab.py        # Executive metrics dashboard tab (Phases 3, 5 & 7)
+│   ├── governance_tab.py       # About & Governance tab (Phase 6)
+│   └── pathway_tab.py          # 10-stage Patient Pathway Tracker (Phase 7)
 ├── ui/
 │   ├── __init__.py
 │   ├── components.py           # Reusable components: triage card, explainability panel, override form
@@ -122,6 +125,7 @@ python scripts/setup_vectorstore.py
 | `tabs/triage_tab.py` | Triage tab UI and logic: input, RAG call, result display, history (Phases 1-4) |
 | `tabs/dashboard_tab.py` | Executive metrics dashboard: KPIs, charts, audit log table, CSV/JSON export (Phases 3 & 5) |
 | `tabs/governance_tab.py` | About & Governance tab: how AI works, data handling, FHIR roadmap, approvals (Phase 6) |
+| `tabs/pathway_tab.py` | 10-stage Patient Pathway Tracker: visual stepper, auto-fill stages 1-4, forms for stages 5-10, clinical letters (Diagnosis + Discharge), full pathway JSON/CSV export (Phase 7) |
 | `ui/components.py` | Reusable components: `render_explainability_panel()`, `show_result()`, `OVERRIDE_REASONS` |
 | `ui/sidebar.py` | Sidebar: `DEMO_SCENARIOS`, `render_sidebar()` — demo picker, system info, session metrics |
 | `src/vector_store.py` | ChromaDB wrapper: loads JSON dataset, generates embeddings in batches, runs similarity search |
