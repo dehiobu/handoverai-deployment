@@ -12,9 +12,44 @@ Phases implemented
   Phase 5 — Executive metrics dashboard (KPIs, charts, time-saved estimate)
   Phase 6 — Governance panel (how it works, data handling, FHIR placeholder)
 """
+import os
+
 import streamlit as st
 
-import config
+
+# ---------------------------------------------------------------------------
+# Secrets helper — must run before any other import that reads os.environ
+# ---------------------------------------------------------------------------
+
+def get_secret(section: str, key: str, env_key: str | None = None,
+               default: str | None = None) -> str | None:
+    """Return a secret from st.secrets (Streamlit Cloud) then os.getenv (.env).
+
+    Calling this syncs discovered values into os.environ so libraries that
+    read env-vars directly (e.g. LangChain, httpx) also pick them up.
+    """
+    env_k = env_key or key.upper()
+    try:
+        val = st.secrets[section][key]
+        if val:
+            os.environ.setdefault(env_k, str(val))
+            return str(val)
+    except Exception:
+        pass
+    return os.getenv(env_k, default)
+
+
+# Sync all known secrets into os.environ before any module-level reads
+for (_sec, _key), _env in {
+    ("database", "url"):    "DATABASE_URL",
+    ("openai",   "api_key"): "OPENAI_API_KEY",
+    ("smtp",     "email"):   "SMTP_EMAIL",
+    ("smtp",     "password"): "SMTP_PASSWORD",
+}.items():
+    get_secret(_sec, _key, _env)
+
+
+import config  # noqa: E402 — imported after secrets sync
 from src.database import init_db, load_pathways_from_db
 from src.vector_store import vector_store
 from src.rag_pipeline import RAGPipeline

@@ -6,14 +6,26 @@ Run from project root:
 
 Safe to re-run -- existing records are skipped via ON CONFLICT.
 All output is ASCII-only (Windows-compatible console).
+
+Works with both PostgreSQL (Supabase) and SQLite fallback.
+DATABASE_URL is read from .env via python-dotenv.
 """
 import sys
 from pathlib import Path
 
-# Ensure project root is on the path
+# Ensure project root is on the path so src.database resolves correctly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from sqlalchemy import text
+
 from src.database import (
+    _conn,
     init_db,
     save_patient,
     save_triage,
@@ -26,7 +38,6 @@ from src.database import (
     save_medication,
     save_safeguarding_flag,
     update_discharge_checklist,
-    _conn,
 )
 
 
@@ -50,7 +61,7 @@ def _already_seeded(nhs: str) -> bool:
     """Return True if this NHS number already has a patient row."""
     with _conn() as conn:
         row = conn.execute(
-            "SELECT id FROM patients WHERE nhs_number = ?", (nhs,)
+            text("SELECT id FROM patients WHERE nhs_number = :nhs"), {"nhs": nhs}
         ).fetchone()
     return row is not None
 
@@ -694,7 +705,7 @@ def _ward_already_seeded(nhs: str) -> bool:
     """Return True if ward log entries already exist for this patient."""
     with _conn() as conn:
         row = conn.execute(
-            "SELECT id FROM ward_logs WHERE nhs_number=? LIMIT 1", (nhs,)
+            text("SELECT id FROM ward_logs WHERE nhs_number=:nhs LIMIT 1"), {"nhs": nhs}
         ).fetchone()
     return row is not None
 

@@ -34,6 +34,7 @@ chroma_db/
 
 # SQLite app database
 *.db
+gp_triage.db
 
 # Logs
 logs/
@@ -50,8 +51,8 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Streamlit
-.streamlit/
+# Streamlit — commit config.toml (theme/server) but NOT secrets.toml
+.streamlit/secrets.toml
 
 # Data (don't commit training data)
 data/*.json
