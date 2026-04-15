@@ -49,24 +49,27 @@ def _resolve_database_url() -> str | None:
 
 
 def _encode_postgres_url(url: str) -> str:
-    """Percent-encode special characters in the password of a PostgreSQL URL.
+    """Percent-encode the password in a PostgreSQL connection URL.
 
-    Python 3.12's urlparse misinterprets square-bracket passwords (e.g.
-    Supabase-generated passwords like ``[eVeG2kk**LWs2+5HH&UJ]``) as IPv6
-    address literals.  We use a regex to split the URL instead.
+    Handles three password formats safely:
+    - Raw (e.g. ``[eVeG2kk**LWs2+5HH&UJ]``)  — Python urlparse breaks on ``[``
+    - Partially encoded (e.g. ``eVeG2kk**LWs2%2B5HH%26UJ``) — won't double-encode
+    - Already fully encoded — returned unchanged
 
-    Characters encoded: [ ] * + & # @ ? = % and any others flagged unsafe.
+    Strategy: decode first (normalise), then re-encode cleanly.
     """
     import re
-    # Match: scheme://user:password@rest  (greedy password up to last @)
-    m = re.match(r"^(postgresql://|postgres://)([^:]+):(.+)@(.+)$", url)
+    from urllib.parse import unquote
+    # Regex split avoids urlparse, which chokes on ``[`` in passwords
+    m = re.match(r"^(postgresql://|postgres://)([^:@]+):(.+)@(.+)$", url)
     if not m:
         return url
-    scheme, user, password, rest = m.group(1), m.group(2), m.group(3), m.group(4)
-    needs_encoding = any(c in password for c in "[]&+*#@?=%")
-    if not needs_encoding:
-        return url
-    return f"{scheme}{user}:{quote(password, safe='')}@{rest}"
+    scheme, user, raw_password, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+    decoded = unquote(raw_password)          # normalise any partial encoding
+    encoded = quote(decoded, safe="")        # fully encode for libpq
+    if encoded == raw_password:
+        return url                           # nothing changed, avoid rebuilding
+    return f"{scheme}{user}:{encoded}@{rest}"
 
 
 def _get_engine() -> Engine:
@@ -465,8 +468,10 @@ def _row(row) -> dict:
 
 def init_db() -> None:
     """Create all tables if they do not already exist (idempotent)."""
-    ddl = _PG_DDL if _IS_POSTGRES else _SQLITE_DDL  # _IS_POSTGRES set by _get_engine()
+    # _get_engine() sets _IS_POSTGRES; call it before reading the flag.
+    # The DDL list is selected *inside* the with-block so the flag is always set.
     with _conn() as conn:
+        ddl = _PG_DDL if _IS_POSTGRES else _SQLITE_DDL
         for stmt in ddl:
             conn.execute(text(stmt))
 
@@ -714,9 +719,9 @@ def get_dashboard_stats() -> dict:
 def search_patients(query: str) -> list[dict]:
     """Case-insensitive search by NHS number or description."""
     like = f"%{query}%"
-    # PostgreSQL uses ILIKE for case-insensitive; SQLite LIKE is already case-insensitive for ASCII
-    like_op = "ILIKE" if _IS_POSTGRES else "LIKE"
     with _conn() as conn:
+        # PostgreSQL: ILIKE for case-insensitive; SQLite LIKE is already case-insensitive for ASCII
+        like_op = "ILIKE" if _IS_POSTGRES else "LIKE"
         rows = conn.execute(
             text(f"""
                 SELECT * FROM patients
