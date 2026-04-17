@@ -454,12 +454,27 @@ _SQLITE_DDL: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# Row helper
+# Row helper + datetime serialiser
 # ---------------------------------------------------------------------------
 
+def _serialize_value(v):
+    """Recursively convert datetime/date objects to ISO-format strings."""
+    import datetime as _dt
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {k: _serialize_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_serialize_value(item) for item in v]
+    return v
+
+
 def _row(row) -> dict:
-    """Convert a SQLAlchemy Row to a plain dict."""
-    return dict(row._mapping)
+    """Convert a SQLAlchemy Row to a plain dict with all datetime values
+    normalised to ISO-format strings so callers never receive bare datetime
+    objects (Supabase/psycopg2 returns proper datetime objects; SQLite
+    returns strings — this makes behaviour identical for both backends)."""
+    return {k: _serialize_value(v) for k, v in dict(row._mapping).items()}
 
 
 # ---------------------------------------------------------------------------

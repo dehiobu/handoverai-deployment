@@ -21,6 +21,21 @@ from src.database import (
 )
 
 
+def _fmt_dt(dt, chars: int = 16) -> str:
+    """Safely format a datetime, date, or string value to a fixed-length string.
+
+    Handles the case where SQLite returns Python datetime objects instead of
+    strings (depends on connection detect_types setting).
+    """
+    if dt is None:
+        return ""
+    if isinstance(dt, (datetime, date)):
+        s = dt.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        s = str(dt)
+    return s[:chars]
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 STAGE_LABELS = {
@@ -176,7 +191,7 @@ def _render_stepper(stages: dict, current_stage: int) -> None:
 
 def _stage_header(num: int, status: str, timestamp: str | None) -> None:
     color = {"complete": "#009639", "in_progress": "#005EB8"}.get(status, "#AEB7BD")
-    ts    = f" — {timestamp[:16].replace('T', ' ')}" if timestamp else ""
+    ts    = f" — {_fmt_dt(timestamp, 16).replace('T', ' ')}" if timestamp else ""
     st.markdown(
         f'<div style="background:{color};color:#fff;padding:8px 16px;'
         f'border-radius:6px;font-weight:700;font-size:1rem;margin-bottom:8px;">'
@@ -601,7 +616,7 @@ def _render_ward_log(pathway: dict, pkey: str) -> None:
     if logs:
         st.markdown(f"**{len(logs)} log entries** (newest first):")
         for entry in logs:
-            ts = (entry.get("created_at") or "")[:16].replace("T", " ")
+            ts = _fmt_dt(entry.get("created_at"), 16).replace("T", " ")
             with st.expander(
                 f"{ts} | {entry['shift']} | {entry['clinician']} ({entry['role']})"
             ):
@@ -721,7 +736,7 @@ def _render_observations(pathway: dict, pkey: str) -> None:
         rows = []
         for o in obs_list:
             rows.append({
-                "Date/Time":  (o.get("obs_date") or "")[:16],
+                "Date/Time":  _fmt_dt(o.get("obs_date"), 16),
                 "Shift":      o["shift"],
                 "Nurse":      o["nurse_name"],
                 "Temp":       o["temperature"],
@@ -803,7 +818,7 @@ def _render_medications(pathway: dict, pkey: str) -> None:
         rows = []
         for m in meds:
             rows.append({
-                "Date/Time":    (m.get("med_date") or "")[:16],
+                "Date/Time":    _fmt_dt(m.get("med_date"), 16),
                 "Drug":         m["drug_name"],
                 "Dose":         m["dose"],
                 "Route":        m["route"],
@@ -851,7 +866,7 @@ def _render_safeguarding(pathway: dict, pkey: str) -> None:
         for f in active:
             st.error(
                 f"FLAG: {f['flag_type']} | By: {f['flagged_by']} "
-                f"| {(f.get('flagged_at') or '')[:10]} | {f['details'][:80]}"
+                f"| {_fmt_dt(f.get('flagged_at'), 10)} | {f['details'][:80]}"
             )
 
     st.markdown("**Add New Safeguarding Flag**")
@@ -971,7 +986,7 @@ def _render_safeguarding(pathway: dict, pkey: str) -> None:
         st.markdown(f"**All flags ({len(flags)} total):**")
         for f in flags:
             status = "RESOLVED" if f.get("resolved") else "ACTIVE"
-            with st.expander(f"{status} — {f['flag_type']} — {(f.get('flagged_at') or '')[:10]}"):
+            with st.expander(f"{status} — {f['flag_type']} — {_fmt_dt(f.get('flagged_at'), 10)}"):
                 st.markdown(f"**By:** {f['flagged_by']}")
                 st.markdown(f"**Details:** {f['details']}")
                 st.markdown(f"**Action:** {f['action_taken'] or 'None recorded'}")
@@ -1030,7 +1045,7 @@ def _render_discharge_checklist_section(pathway: dict, pkey: str) -> bool:
                     placeholder="Initials",
                 )
             with c3:
-                ts_display = existing.get("timestamp", "")[:16].replace("T", " ")
+                ts_display = _fmt_dt(existing.get("timestamp"), 16).replace("T", " ")
                 st.caption(ts_display or "Not signed")
             updated[item_key] = {
                 "checked":   checked,
@@ -1116,7 +1131,7 @@ def _render_timeline(nhs: str, pkey: str) -> None:
         items_html = []
         for ev in reversed(events):  # newest first
             colour = _TIMELINE_COLOURS.get(ev["category"], "#6B7280")
-            ts     = (ev["ts"] or "")[:16].replace("T", " ")
+            ts     = _fmt_dt(ev.get("ts"), 16).replace("T", " ")
             items_html.append(
                 f'<div style="display:flex;align-items:flex-start;margin-bottom:12px;">'
                 f'  <div style="width:12px;height:12px;border-radius:50%;'
@@ -1377,7 +1392,7 @@ def render_pathway() -> None:
     mc1.metric("Stages Complete", f"{completed_count}/10")
     mc2.metric("Active Stage", f"{cur} — {STAGE_LABELS.get(cur, 'Discharge')}")
     mc3.metric("Status", "Discharged" if all_done else "In Progress")
-    mc4.metric("Created", pathway["created_at"][:10])
+    mc4.metric("Created", _fmt_dt(pathway["created_at"], 10))
 
     if all_done:
         st.success("This patient has been fully discharged. All 10 stages are complete.")
