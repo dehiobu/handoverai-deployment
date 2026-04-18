@@ -13,9 +13,16 @@ from src.database import (
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
 _STAGE_LABELS = {
-    1: "Presentation", 2: "Triage",    3: "Assignment", 4: "Referral",
-    5: "Admission",    6: "Diagnosis", 7: "Treatment",  8: "Outcome",
-    9: "Aftercare",   10: "Discharge",
+    1:  "Presentation",
+    2:  "GP Triage",
+    3:  "Consultation",
+    4:  "Investigations",
+    5:  "Referral",
+    6:  "Admission",
+    7:  "Discharge Summary",
+    8:  "Follow-up",
+    9:  "Ongoing Care",
+    10: "Case Closure",
 }
 
 # Phase 5 — baseline for time-saved calculation

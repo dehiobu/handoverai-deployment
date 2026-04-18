@@ -304,6 +304,100 @@ _PG_DDL: list[str] = [
         updated_by     TEXT      DEFAULT 'system'
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS gp_consultations (
+        id                   SERIAL PRIMARY KEY,
+        nhs_number           TEXT,
+        consultation_date    TEXT,
+        gp_name              TEXT,
+        gp_email             TEXT      DEFAULT '',
+        presenting_complaint TEXT      DEFAULT '',
+        examination_findings TEXT      DEFAULT '',
+        assessment           TEXT      DEFAULT '',
+        plan                 TEXT      DEFAULT '',
+        plan_detail          TEXT      DEFAULT '',
+        follow_up_date       TEXT      DEFAULT '',
+        follow_up_gp         TEXT      DEFAULT '',
+        follow_up_surgery    TEXT      DEFAULT '',
+        created_at           TIMESTAMP DEFAULT NOW(),
+        created_by           TEXT      DEFAULT 'system'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS test_orders (
+        id                   SERIAL PRIMARY KEY,
+        nhs_number           TEXT,
+        consultation_id      INTEGER   DEFAULT 0,
+        test_name            TEXT,
+        test_type            TEXT,
+        ordered_date         TEXT,
+        ordered_by           TEXT,
+        status               TEXT      DEFAULT 'pending',
+        result_date          TEXT      DEFAULT '',
+        result_summary       TEXT      DEFAULT '',
+        result_flag          TEXT      DEFAULT 'normal',
+        gp_review_notes      TEXT      DEFAULT '',
+        action_after_result  TEXT      DEFAULT '',
+        notify_nhs_app       INTEGER   DEFAULT 0,
+        created_at           TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS hospital_admissions (
+        id                  SERIAL PRIMARY KEY,
+        nhs_number          TEXT,
+        admission_date      TEXT,
+        hospital_name       TEXT      DEFAULT '',
+        ward                TEXT      DEFAULT '',
+        consultant          TEXT      DEFAULT '',
+        diagnosis           TEXT      DEFAULT '',
+        treatment           TEXT      DEFAULT '',
+        complications       TEXT      DEFAULT '',
+        expected_discharge  TEXT      DEFAULT '',
+        created_at          TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS discharge_summaries (
+        id                     SERIAL PRIMARY KEY,
+        nhs_number             TEXT,
+        admission_id           INTEGER   DEFAULT 0,
+        discharge_date         TEXT      DEFAULT '',
+        discharge_destination  TEXT      DEFAULT '',
+        summary_received       INTEGER   DEFAULT 0,
+        diagnosis              TEXT      DEFAULT '',
+        treatment_given        TEXT      DEFAULT '',
+        discharge_medications  TEXT      DEFAULT '',
+        follow_up_instructions TEXT      DEFAULT '',
+        gp_actions             TEXT      DEFAULT '',
+        received_at            TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS case_closures (
+        id             SERIAL PRIMARY KEY,
+        nhs_number     TEXT UNIQUE,
+        closed_date    TEXT,
+        closed_by      TEXT,
+        closure_reason TEXT      DEFAULT '',
+        retention_date TEXT,
+        warning_flag   INTEGER   DEFAULT 0,
+        case_summary   TEXT      DEFAULT '',
+        created_at     TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nhs_app_notifications (
+        id                    SERIAL PRIMARY KEY,
+        nhs_number            TEXT,
+        notification_type     TEXT,
+        notification_content  TEXT      DEFAULT '',
+        sent_at               TIMESTAMP DEFAULT NOW(),
+        sent_by               TEXT      DEFAULT 'system',
+        patient_acknowledged  INTEGER   DEFAULT 0,
+        acknowledged_at       TIMESTAMP
+    )
+    """,
 ]
 
 # ---------------------------------------------------------------------------
@@ -496,6 +590,100 @@ _SQLITE_DDL: list[str] = [
         updated_by     TEXT DEFAULT 'system'
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS gp_consultations (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number           TEXT,
+        consultation_date    TEXT,
+        gp_name              TEXT,
+        gp_email             TEXT DEFAULT '',
+        presenting_complaint TEXT DEFAULT '',
+        examination_findings TEXT DEFAULT '',
+        assessment           TEXT DEFAULT '',
+        plan                 TEXT DEFAULT '',
+        plan_detail          TEXT DEFAULT '',
+        follow_up_date       TEXT DEFAULT '',
+        follow_up_gp         TEXT DEFAULT '',
+        follow_up_surgery    TEXT DEFAULT '',
+        created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by           TEXT DEFAULT 'system'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS test_orders (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number          TEXT,
+        consultation_id     INTEGER DEFAULT 0,
+        test_name           TEXT,
+        test_type           TEXT,
+        ordered_date        TEXT,
+        ordered_by          TEXT,
+        status              TEXT DEFAULT 'pending',
+        result_date         TEXT DEFAULT '',
+        result_summary      TEXT DEFAULT '',
+        result_flag         TEXT DEFAULT 'normal',
+        gp_review_notes     TEXT DEFAULT '',
+        action_after_result TEXT DEFAULT '',
+        notify_nhs_app      INTEGER DEFAULT 0,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS hospital_admissions (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number         TEXT,
+        admission_date     TEXT,
+        hospital_name      TEXT DEFAULT '',
+        ward               TEXT DEFAULT '',
+        consultant         TEXT DEFAULT '',
+        diagnosis          TEXT DEFAULT '',
+        treatment          TEXT DEFAULT '',
+        complications      TEXT DEFAULT '',
+        expected_discharge TEXT DEFAULT '',
+        created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS discharge_summaries (
+        id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number             TEXT,
+        admission_id           INTEGER DEFAULT 0,
+        discharge_date         TEXT DEFAULT '',
+        discharge_destination  TEXT DEFAULT '',
+        summary_received       INTEGER DEFAULT 0,
+        diagnosis              TEXT DEFAULT '',
+        treatment_given        TEXT DEFAULT '',
+        discharge_medications  TEXT DEFAULT '',
+        follow_up_instructions TEXT DEFAULT '',
+        gp_actions             TEXT DEFAULT '',
+        received_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS case_closures (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number     TEXT UNIQUE,
+        closed_date    TEXT,
+        closed_by      TEXT,
+        closure_reason TEXT DEFAULT '',
+        retention_date TEXT,
+        warning_flag   INTEGER DEFAULT 0,
+        case_summary   TEXT DEFAULT '',
+        created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nhs_app_notifications (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number           TEXT,
+        notification_type    TEXT,
+        notification_content TEXT DEFAULT '',
+        sent_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sent_by              TEXT DEFAULT 'system',
+        patient_acknowledged INTEGER DEFAULT 0,
+        acknowledged_at      TIMESTAMP
+    )
+    """,
 ]
 
 
@@ -524,6 +712,18 @@ def _row(row) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# SQLite migration helper
+# ---------------------------------------------------------------------------
+
+def _sqlite_add_col(conn, table: str, col_name: str, col_def: str) -> None:
+    """Add a column to a SQLite table if it does not already exist."""
+    try:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"))
+    except Exception:
+        pass  # Column already exists
+
+
+# ---------------------------------------------------------------------------
 # init_db
 # ---------------------------------------------------------------------------
 
@@ -537,18 +737,38 @@ def init_db() -> None:
             conn.execute(text(stmt))
 
         # ── Incremental migrations (safe to re-run) ──────────────────────────
-        # Add alias_used column to login_audit (introduced after initial schema)
         if _IS_POSTGRES:
             conn.execute(text(
                 "ALTER TABLE login_audit ADD COLUMN IF NOT EXISTS alias_used TEXT DEFAULT ''"
             ))
-        else:
-            try:
+            # referrals: extra columns for GP workflow
+            for col_def in [
+                "referral_category TEXT DEFAULT ''",
+                "hospital_name TEXT DEFAULT ''",
+                "department TEXT DEFAULT ''",
+                "specialty TEXT DEFAULT ''",
+                "ereferral_reference TEXT DEFAULT ''",
+                "ereferral_status TEXT DEFAULT 'draft'",
+                "email_sent INTEGER DEFAULT 0",
+                "email_sent_at TEXT DEFAULT ''",
+            ]:
+                col_name = col_def.split()[0]
                 conn.execute(text(
-                    "ALTER TABLE login_audit ADD COLUMN alias_used TEXT DEFAULT ''"
+                    f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS {col_def}"
                 ))
-            except Exception:
-                pass  # Column already exists in SQLite
+        else:
+            _sqlite_add_col(conn, "login_audit", "alias_used", "TEXT DEFAULT ''")
+            for col_def in [
+                "referral_category TEXT DEFAULT ''",
+                "hospital_name TEXT DEFAULT ''",
+                "department TEXT DEFAULT ''",
+                "specialty TEXT DEFAULT ''",
+                "ereferral_reference TEXT DEFAULT ''",
+                "ereferral_status TEXT DEFAULT 'draft'",
+                "email_sent INTEGER DEFAULT 0",
+                "email_sent_at TEXT DEFAULT ''",
+            ]:
+                _sqlite_add_col(conn, "referrals", col_def.split()[0], " ".join(col_def.split()[1:]))
 
 
 # ---------------------------------------------------------------------------
@@ -999,14 +1219,14 @@ def get_discharge_checklist(nhs_number: str) -> dict:
 def get_ward_overview_stats() -> dict:
     """Aggregate ward stats for the dashboard ward overview section."""
     with _conn() as conn:
-        # Patients admitted but not discharged
+        # Patients admitted but not case-closed (stage 6 = Admission in new workflow)
         admitted = conn.execute(
             text("""
-                SELECT COUNT(DISTINCT p5.nhs_number)
-                FROM pathway_stages p5
+                SELECT COUNT(DISTINCT p6.nhs_number)
+                FROM pathway_stages p6
                 LEFT JOIN pathway_stages p10
-                    ON p5.nhs_number = p10.nhs_number AND p10.stage_number = 10
-                WHERE p5.stage_number = 5 AND p5.status = 'complete'
+                    ON p6.nhs_number = p10.nhs_number AND p10.stage_number = 10
+                WHERE p6.stage_number = 6 AND p6.status = 'complete'
                   AND (p10.status IS NULL OR p10.status != 'complete')
             """)
         ).fetchone()[0]
@@ -1030,7 +1250,7 @@ def get_ward_overview_stats() -> dict:
             text("SELECT COUNT(*) FROM safeguarding_flags WHERE resolved=0")
         ).fetchone()[0]
 
-        # Awaiting discharge: stage 9 complete, stage 10 not complete
+        # Awaiting case closure: stage 9 complete, stage 10 not complete
         awaiting_dc = conn.execute(
             text("""
                 SELECT COUNT(DISTINCT p9.nhs_number)
@@ -1042,7 +1262,7 @@ def get_ward_overview_stats() -> dict:
             """)
         ).fetchone()[0]
 
-        # Average length of stay
+        # Average length of stay — from hospital_admissions table
         los_rows = conn.execute(
             text("""
                 SELECT stage_data FROM pathway_stages
@@ -1329,6 +1549,455 @@ def get_shift_handovers(nhs_number: str) -> list[dict]:
                 SELECT * FROM shift_handovers
                 WHERE nhs_number = :nhs
                 ORDER BY handover_time DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# GP Consultations
+# ---------------------------------------------------------------------------
+
+def save_consultation(nhs_number: str, consultation_date: str, gp_name: str,
+                      gp_email: str = "", presenting_complaint: str = "",
+                      examination_findings: str = "", assessment: str = "",
+                      plan: str = "", plan_detail: str = "",
+                      follow_up_date: str = "", follow_up_gp: str = "",
+                      follow_up_surgery: str = "",
+                      created_by: str = "system") -> int:
+    """Insert a GP consultation record. Returns the new row id."""
+    params = {
+        "nhs": nhs_number, "cdate": consultation_date, "gp": gp_name,
+        "email": gp_email, "complaint": presenting_complaint,
+        "exam": examination_findings, "assess": assessment,
+        "plan": plan, "detail": plan_detail,
+        "fudate": follow_up_date, "fugp": follow_up_gp,
+        "fusurg": follow_up_surgery, "by": created_by,
+    }
+    with _conn() as conn:
+        if _IS_POSTGRES:
+            row = conn.execute(
+                text("""
+                    INSERT INTO gp_consultations
+                        (nhs_number, consultation_date, gp_name, gp_email,
+                         presenting_complaint, examination_findings, assessment,
+                         plan, plan_detail, follow_up_date, follow_up_gp,
+                         follow_up_surgery, created_by)
+                    VALUES (:nhs, :cdate, :gp, :email, :complaint, :exam,
+                            :assess, :plan, :detail, :fudate, :fugp, :fusurg, :by)
+                    RETURNING id
+                """),
+                params,
+            ).fetchone()
+            return row[0]
+        else:
+            result = conn.execute(
+                text("""
+                    INSERT INTO gp_consultations
+                        (nhs_number, consultation_date, gp_name, gp_email,
+                         presenting_complaint, examination_findings, assessment,
+                         plan, plan_detail, follow_up_date, follow_up_gp,
+                         follow_up_surgery, created_by)
+                    VALUES (:nhs, :cdate, :gp, :email, :complaint, :exam,
+                            :assess, :plan, :detail, :fudate, :fugp, :fusurg, :by)
+                """),
+                params,
+            )
+            return result.lastrowid
+
+
+def get_consultations(nhs_number: str) -> list[dict]:
+    """Return all GP consultations for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM gp_consultations
+                WHERE nhs_number = :nhs ORDER BY consultation_date DESC, created_at DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Test orders
+# ---------------------------------------------------------------------------
+
+def save_test_order(nhs_number: str, test_name: str, test_type: str,
+                    ordered_date: str, ordered_by: str,
+                    consultation_id: int = 0,
+                    notify_nhs_app: bool = False) -> int:
+    """Insert a test order. Returns the new row id."""
+    params = {
+        "nhs": nhs_number, "cid": consultation_id, "name": test_name,
+        "ttype": test_type, "odate": ordered_date, "oby": ordered_by,
+        "notify": 1 if notify_nhs_app else 0,
+    }
+    with _conn() as conn:
+        if _IS_POSTGRES:
+            row = conn.execute(
+                text("""
+                    INSERT INTO test_orders
+                        (nhs_number, consultation_id, test_name, test_type,
+                         ordered_date, ordered_by, notify_nhs_app)
+                    VALUES (:nhs, :cid, :name, :ttype, :odate, :oby, :notify)
+                    RETURNING id
+                """),
+                params,
+            ).fetchone()
+            return row[0]
+        else:
+            result = conn.execute(
+                text("""
+                    INSERT INTO test_orders
+                        (nhs_number, consultation_id, test_name, test_type,
+                         ordered_date, ordered_by, notify_nhs_app)
+                    VALUES (:nhs, :cid, :name, :ttype, :odate, :oby, :notify)
+                """),
+                params,
+            )
+            return result.lastrowid
+
+
+def update_test_result(test_id: int, result_date: str, result_summary: str,
+                       result_flag: str = "normal", gp_review_notes: str = "",
+                       action_after_result: str = "") -> None:
+    """Record results for an existing test order and mark as resulted."""
+    with _conn() as conn:
+        conn.execute(
+            text("""
+                UPDATE test_orders SET
+                    status              = 'resulted',
+                    result_date         = :rdate,
+                    result_summary      = :rsumm,
+                    result_flag         = :rflag,
+                    gp_review_notes     = :notes,
+                    action_after_result = :action
+                WHERE id = :tid
+            """),
+            {
+                "tid": test_id, "rdate": result_date, "rsumm": result_summary,
+                "rflag": result_flag, "notes": gp_review_notes,
+                "action": action_after_result,
+            },
+        )
+
+
+def get_test_orders(nhs_number: str) -> list[dict]:
+    """Return all test orders for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM test_orders
+                WHERE nhs_number = :nhs ORDER BY ordered_date DESC, created_at DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Hospital admissions
+# ---------------------------------------------------------------------------
+
+def save_hospital_admission(nhs_number: str, admission_date: str,
+                             hospital_name: str = "", ward: str = "",
+                             consultant: str = "", diagnosis: str = "",
+                             treatment: str = "", complications: str = "",
+                             expected_discharge: str = "") -> int:
+    """Insert a hospital admission record. Returns the new row id."""
+    params = {
+        "nhs": nhs_number, "adate": admission_date, "hosp": hospital_name,
+        "ward": ward, "cons": consultant, "diag": diagnosis,
+        "treat": treatment, "comp": complications, "exp": expected_discharge,
+    }
+    with _conn() as conn:
+        if _IS_POSTGRES:
+            row = conn.execute(
+                text("""
+                    INSERT INTO hospital_admissions
+                        (nhs_number, admission_date, hospital_name, ward,
+                         consultant, diagnosis, treatment, complications, expected_discharge)
+                    VALUES (:nhs, :adate, :hosp, :ward, :cons, :diag, :treat, :comp, :exp)
+                    RETURNING id
+                """),
+                params,
+            ).fetchone()
+            return row[0]
+        else:
+            result = conn.execute(
+                text("""
+                    INSERT INTO hospital_admissions
+                        (nhs_number, admission_date, hospital_name, ward,
+                         consultant, diagnosis, treatment, complications, expected_discharge)
+                    VALUES (:nhs, :adate, :hosp, :ward, :cons, :diag, :treat, :comp, :exp)
+                """),
+                params,
+            )
+            return result.lastrowid
+
+
+def get_hospital_admissions(nhs_number: str) -> list[dict]:
+    """Return all hospital admissions for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM hospital_admissions
+                WHERE nhs_number = :nhs ORDER BY admission_date DESC, created_at DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Discharge summaries
+# ---------------------------------------------------------------------------
+
+def save_discharge_summary(nhs_number: str, discharge_date: str = "",
+                            discharge_destination: str = "",
+                            admission_id: int = 0,
+                            diagnosis: str = "", treatment_given: str = "",
+                            discharge_medications: str = "",
+                            follow_up_instructions: str = "",
+                            gp_actions: str = "") -> int:
+    """Insert a discharge summary received from hospital. Returns new row id."""
+    params = {
+        "nhs": nhs_number, "aid": admission_id, "ddate": discharge_date,
+        "dest": discharge_destination, "diag": diagnosis,
+        "treat": treatment_given, "meds": discharge_medications,
+        "fuinstr": follow_up_instructions, "gpact": gp_actions,
+    }
+    with _conn() as conn:
+        if _IS_POSTGRES:
+            row = conn.execute(
+                text("""
+                    INSERT INTO discharge_summaries
+                        (nhs_number, admission_id, discharge_date, discharge_destination,
+                         summary_received, diagnosis, treatment_given, discharge_medications,
+                         follow_up_instructions, gp_actions)
+                    VALUES (:nhs, :aid, :ddate, :dest, 1, :diag, :treat, :meds, :fuinstr, :gpact)
+                    RETURNING id
+                """),
+                params,
+            ).fetchone()
+            return row[0]
+        else:
+            result = conn.execute(
+                text("""
+                    INSERT INTO discharge_summaries
+                        (nhs_number, admission_id, discharge_date, discharge_destination,
+                         summary_received, diagnosis, treatment_given, discharge_medications,
+                         follow_up_instructions, gp_actions)
+                    VALUES (:nhs, :aid, :ddate, :dest, 1, :diag, :treat, :meds, :fuinstr, :gpact)
+                """),
+                params,
+            )
+            return result.lastrowid
+
+
+def get_discharge_summaries(nhs_number: str) -> list[dict]:
+    """Return all discharge summaries for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM discharge_summaries
+                WHERE nhs_number = :nhs ORDER BY received_at DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Enhanced referrals (updated save_referral with extra fields)
+# ---------------------------------------------------------------------------
+
+def save_referral_full(nhs_number: str, referral_category: str,
+                       referral_type: str, referral_name: str,
+                       urgency: str = "", hospital_name: str = "",
+                       department: str = "", specialty: str = "",
+                       location: str = "", ereferral_reference: str = "",
+                       ereferral_status: str = "draft",
+                       email_sent: bool = False) -> None:
+    """Insert a referral with full NHS GP workflow fields."""
+    params = {
+        "nhs": nhs_number, "cat": referral_category, "rtype": referral_type,
+        "rname": referral_name, "urg": urgency, "hosp": hospital_name,
+        "dept": department, "spec": specialty, "loc": location,
+        "eref": ereferral_reference, "estat": ereferral_status,
+        "esent": 1 if email_sent else 0,
+        "esentat": datetime.now().isoformat() if email_sent else "",
+    }
+    with _conn() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO referrals
+                    (nhs_number, referral_category, referral_type, referral_name,
+                     urgency, hospital_name, department, specialty, location,
+                     ereferral_reference, ereferral_status, email_sent, email_sent_at)
+                VALUES (:nhs, :cat, :rtype, :rname, :urg, :hosp, :dept, :spec,
+                        :loc, :eref, :estat, :esent, :esentat)
+            """),
+            params,
+        )
+
+
+def get_referrals(nhs_number: str) -> list[dict]:
+    """Return all referrals for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM referrals WHERE nhs_number=:nhs ORDER BY created_at DESC"),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Case closures + retention
+# ---------------------------------------------------------------------------
+
+def calculate_retention_date(dob_str: str | None, closure_date_str: str) -> str:
+    """Calculate NHS record retention date.
+
+    Adults:   10 years from closure date.
+    Children: Until 25th birthday, or 10 years from closure, whichever is longer.
+    If dob_str is None/empty, defaults to adult retention (10 years).
+    """
+    from config import (          # noqa: PLC0415
+        RETENTION_ADULT_YEARS, RETENTION_CHILD_MIN_AGE,
+    )
+    import datetime as _dt
+    try:
+        closure = _dt.date.fromisoformat(closure_date_str[:10])
+    except (ValueError, TypeError):
+        closure = _dt.date.today()
+
+    ten_years = closure.replace(year=closure.year + RETENTION_ADULT_YEARS)
+
+    if dob_str:
+        try:
+            dob = _dt.date.fromisoformat(str(dob_str)[:10])
+            # Age at closure
+            age_at_closure = (closure - dob).days / 365.25
+            if age_at_closure < 18:
+                # Child: 25th birthday
+                birthday_25 = dob.replace(year=dob.year + RETENTION_CHILD_MIN_AGE)
+                return max(birthday_25, ten_years).isoformat()
+        except (ValueError, TypeError):
+            pass
+
+    return ten_years.isoformat()
+
+
+def save_case_closure(nhs_number: str, closed_by: str,
+                      closure_reason: str = "",
+                      retention_date: str = "", case_summary: str = "",
+                      dob_str: str | None = None) -> None:
+    """Record case closure and compute retention date if not provided."""
+    closed_date = datetime.now().date().isoformat()
+    if not retention_date:
+        retention_date = calculate_retention_date(dob_str, closed_date)
+
+    from config import RETENTION_WARNING_MONTHS  # noqa: PLC0415
+    import datetime as _dt
+    try:
+        ret_d = _dt.date.fromisoformat(retention_date)
+        today = _dt.date.today()
+        months_to_ret = (ret_d - today).days / 30.44
+        warning_flag = 1 if months_to_ret <= RETENTION_WARNING_MONTHS else 0
+    except (ValueError, TypeError):
+        warning_flag = 0
+
+    with _conn() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO case_closures
+                    (nhs_number, closed_date, closed_by, closure_reason,
+                     retention_date, warning_flag, case_summary)
+                VALUES (:nhs, :cdate, :cby, :reason, :retd, :wflag, :summ)
+                ON CONFLICT(nhs_number) DO UPDATE SET
+                    closed_date    = EXCLUDED.closed_date,
+                    closed_by      = EXCLUDED.closed_by,
+                    closure_reason = EXCLUDED.closure_reason,
+                    retention_date = EXCLUDED.retention_date,
+                    warning_flag   = EXCLUDED.warning_flag,
+                    case_summary   = EXCLUDED.case_summary
+            """),
+            {
+                "nhs": nhs_number, "cdate": closed_date, "cby": closed_by,
+                "reason": closure_reason, "retd": retention_date,
+                "wflag": warning_flag, "summ": case_summary,
+            },
+        )
+
+
+def get_case_closure(nhs_number: str) -> dict | None:
+    """Return the case closure record for a patient, or None."""
+    with _conn() as conn:
+        row = conn.execute(
+            text("SELECT * FROM case_closures WHERE nhs_number = :nhs"),
+            {"nhs": nhs_number},
+        ).fetchone()
+        return _row(row) if row else None
+
+
+def get_retention_alerts() -> list[dict]:
+    """Return all cases where retention warning_flag = 1."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM case_closures
+                WHERE warning_flag = 1 ORDER BY retention_date ASC
+            """)
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# NHS App notifications
+# ---------------------------------------------------------------------------
+
+def save_nhs_app_notification(nhs_number: str, notification_type: str,
+                               notification_content: str,
+                               sent_by: str = "system") -> int:
+    """Log a simulated NHS App notification. Returns new row id."""
+    params = {
+        "nhs": nhs_number, "ntype": notification_type,
+        "content": notification_content, "by": sent_by,
+    }
+    with _conn() as conn:
+        if _IS_POSTGRES:
+            row = conn.execute(
+                text("""
+                    INSERT INTO nhs_app_notifications
+                        (nhs_number, notification_type, notification_content, sent_by)
+                    VALUES (:nhs, :ntype, :content, :by)
+                    RETURNING id
+                """),
+                params,
+            ).fetchone()
+            return row[0]
+        else:
+            result = conn.execute(
+                text("""
+                    INSERT INTO nhs_app_notifications
+                        (nhs_number, notification_type, notification_content, sent_by)
+                    VALUES (:nhs, :ntype, :content, :by)
+                """),
+                params,
+            )
+            return result.lastrowid
+
+
+def get_nhs_app_notifications(nhs_number: str) -> list[dict]:
+    """Return all NHS App notifications for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM nhs_app_notifications
+                WHERE nhs_number = :nhs ORDER BY sent_at DESC
             """),
             {"nhs": nhs_number},
         ).fetchall()

@@ -73,3 +73,27 @@ LOG_FILE = LOGS_DIR / "triage.log"
 
 # Dataset file
 DATASET_FILE = DATA_DIR / "ai_validated_dataset.json"
+
+# ── Surgery configuration ────────────────────────────────────────────────────
+# Configurable at setup time — primary surgery and up to 2 overflow surgeries.
+PRIMARY_SURGERY = {
+    "name":    os.getenv("PRIMARY_SURGERY_NAME", "Hole in the Wall Surgery"),
+    "address": os.getenv("PRIMARY_SURGERY_ADDRESS", ""),
+    "phone":   os.getenv("PRIMARY_SURGERY_PHONE", ""),
+    "email":   os.getenv("PRIMARY_SURGERY_EMAIL", ""),
+}
+OVERFLOW_SURGERIES: list[dict] = [
+    {
+        "name":    os.getenv("OVERFLOW_SURGERY_1_NAME", "Woodlands Surgery"),
+        "address": os.getenv("OVERFLOW_SURGERY_1_ADDRESS",
+                             "5 Woodlands Rd, Redhill RH1 6EY"),
+        "phone":   os.getenv("OVERFLOW_SURGERY_1_PHONE", ""),
+        "email":   os.getenv("OVERFLOW_SURGERY_1_EMAIL", ""),
+        "note":    "Located directly across the road from the swimming pool complex",
+    },
+]
+
+# ── Record retention defaults (NHS) ─────────────────────────────────────────
+RETENTION_ADULT_YEARS    = 10   # from date of case closure
+RETENTION_CHILD_MIN_AGE  = 25   # until patient's 25th birthday, or 10 years, whichever longer
+RETENTION_WARNING_MONTHS = 6    # flag records within 6 months of deletion date
