@@ -1,9 +1,16 @@
 """
-ui/sidebar.py — Sidebar: demo scenarios, system info, session metrics, controls.
+ui/sidebar.py — Sidebar: user info, demo scenarios, system info, session metrics.
 """
+from datetime import datetime
+
 import streamlit as st
 
 import config
+from src.auth import (
+    get_current_user, get_user_name, get_user_role, get_user_email,
+    logout, is_authenticated,
+)
+from src.database import save_login_audit
 
 # Phase 4 — pre-loaded demo scenarios
 DEMO_SCENARIOS: dict[str, str] = {
@@ -35,10 +42,65 @@ DEMO_SCENARIOS: dict[str, str] = {
     ),
 }
 
+_ROLE_LABELS = {
+    "admin":      "Admin",
+    "gp":         "GP",
+    "consultant": "Consultant",
+    "nurse":      "Nurse",
+    "manager":    "Practice Manager",
+}
+
+
+def _render_user_panel() -> None:
+    """Show logged-in user info and logout button."""
+    if not is_authenticated():
+        return
+
+    user = get_current_user() or {}
+    name = get_user_name()
+    role = get_user_role()
+    email = get_user_email()
+    login_time = st.session_state.get("auth_login_time")
+    role_label = _ROLE_LABELS.get(role, role.title())
+
+    st.markdown("### Logged In As")
+    st.markdown(f"**{name}**")
+    st.markdown(f"Role: **{role_label}**")
+    if email:
+        st.caption(email)
+    if login_time:
+        st.caption(f"Last login: {login_time.strftime('%H:%M, %d %b %Y')}")
+
+    handover = st.session_state.get("active_handover")
+    if handover:
+        st.info(f"On duty: {handover['on_duty']}")
+
+    if st.button("Logout", key="sidebar_logout"):
+        login_time = st.session_state.get("auth_login_time")
+        dur = 0
+        if login_time:
+            dur = int((datetime.now() - login_time).total_seconds() / 60)
+        try:
+            save_login_audit(
+                user_email=email,
+                user_name=name,
+                user_role=role,
+                action="logout",
+                session_duration_minutes=dur,
+            )
+        except Exception:
+            pass
+        logout()
+        st.rerun()
+
+    st.markdown("---")
+
 
 def render_sidebar() -> None:
     """Render the full sidebar content."""
     with st.sidebar:
+        _render_user_panel()
+
         # Phase 4 — Demo scenarios
         st.markdown("### Demo Scenarios")
         selected_demo = st.selectbox(
@@ -59,7 +121,7 @@ def render_sidebar() -> None:
             f"**Model:** {config.CHAT_MODEL}  \n"
             f"**Embeddings:** {config.EMBEDDING_MODEL}  \n"
             f"**Training Cases:** 447  \n"
-            f"**Version:** 0.2.0 (POC)"
+            f"**Version:** 0.3.0 (POC)"
         )
 
         st.markdown("---")
@@ -106,7 +168,13 @@ def render_sidebar() -> None:
 
         st.markdown("---")
         if st.button("Reset Session"):
+            auth_user  = st.session_state.get("auth_user")
+            login_time = st.session_state.get("auth_login_time")
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
+            # Restore auth so user doesn't get logged out
+            if auth_user:
+                st.session_state["auth_user"]       = auth_user
+                st.session_state["auth_login_time"] = login_time
             st.rerun()
-        st.caption("GP Triage Assistant v0.2.0")
+        st.caption("HandoverAI v0.3.0 | Sutatscode Ltd")

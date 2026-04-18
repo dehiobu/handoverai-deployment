@@ -6,7 +6,10 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src.database import get_dashboard_stats, get_all_triage_sessions, get_ward_overview_stats
+from src.database import (
+    get_dashboard_stats, get_all_triage_sessions,
+    get_ward_overview_stats, get_login_audit,
+)
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
 _STAGE_LABELS = {
@@ -319,3 +322,70 @@ def render_executive_dashboard() -> None:
             index=list(dist_data.keys()),
         )
         st.bar_chart(stage_df)
+
+    # ── Login Audit (NHS Governance) ─────────────────────────────────────────
+    _render_login_audit_section()
+
+
+def _render_login_audit_section() -> None:
+    """Login audit log — critical for NHS governance."""
+    st.markdown(
+        '<div class="section-heading">Login Audit (Access Log)</div>',
+        unsafe_allow_html=True,
+    )
+
+    try:
+        audit_rows = get_login_audit(limit=50)
+    except Exception as exc:
+        st.warning(f"Login audit unavailable: {exc}")
+        return
+
+    if not audit_rows:
+        st.info("No login events recorded yet.")
+        return
+
+    # Summary KPIs
+    total_events  = len(audit_rows)
+    failed_logins = sum(1 for r in audit_rows if r.get("action") == "login_failed")
+    successes     = sum(1 for r in audit_rows if r.get("action") == "login_success")
+    unique_users  = len({r.get("user_email") for r in audit_rows if r.get("user_email")})
+
+    la1, la2, la3, la4 = st.columns(4)
+    la1.metric("Total Events",    total_events)
+    la2.metric("Successful Logins", successes)
+    la3.metric("Failed Attempts", failed_logins,
+               delta="ALERT" if failed_logins > 0 else None,
+               delta_color="inverse")
+    la4.metric("Unique Users",    unique_users)
+
+    # Table
+    _ACTION_LABELS = {
+        "login_success":    "Login",
+        "login_failed":     "FAILED LOGIN",
+        "logout":           "Logout",
+        "session_timeout":  "Session Timeout",
+    }
+    rows = []
+    for r in audit_rows:
+        action = r.get("action", "")
+        rows.append({
+            "Timestamp":   (r.get("timestamp") or "")[:16].replace("T", " "),
+            "User":        r.get("user_name") or r.get("user_email", "—"),
+            "Email":       r.get("user_email", "—"),
+            "Role":        r.get("user_role", "—"),
+            "Event":       _ACTION_LABELS.get(action, action),
+            "Duration (min)": r.get("session_duration_minutes") or "—",
+        })
+
+    df = pd.DataFrame(rows)
+
+    # Highlight failed logins in the display
+    def _highlight_failed(row):
+        if "FAILED" in str(row.get("Event", "")):
+            return ["background-color: #FDECEA"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(
+        df.style.apply(_highlight_failed, axis=1),
+        use_container_width=True,
+    )

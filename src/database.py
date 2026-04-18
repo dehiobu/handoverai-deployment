@@ -120,6 +120,28 @@ def _conn():
 
 _PG_DDL: list[str] = [
     """
+    CREATE TABLE IF NOT EXISTS login_audit (
+        id                      SERIAL PRIMARY KEY,
+        user_email              TEXT,
+        user_name               TEXT      DEFAULT '',
+        user_role               TEXT      DEFAULT '',
+        action                  TEXT,
+        ip_address              TEXT      DEFAULT 'Not captured',
+        timestamp               TIMESTAMP DEFAULT NOW(),
+        session_duration_minutes INTEGER  DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS shift_handovers (
+        id              SERIAL PRIMARY KEY,
+        nhs_number      TEXT,
+        handed_from     TEXT,
+        handed_to       TEXT,
+        handover_notes  TEXT      DEFAULT '',
+        handover_time   TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS patients (
         id          SERIAL PRIMARY KEY,
         nhs_number  TEXT   UNIQUE NOT NULL,
@@ -288,6 +310,28 @@ _PG_DDL: list[str] = [
 # ---------------------------------------------------------------------------
 
 _SQLITE_DDL: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS login_audit (
+        id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email               TEXT,
+        user_name                TEXT    DEFAULT '',
+        user_role                TEXT    DEFAULT '',
+        action                   TEXT,
+        ip_address               TEXT    DEFAULT 'Not captured',
+        timestamp                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        session_duration_minutes INTEGER DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS shift_handovers (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        nhs_number     TEXT,
+        handed_from    TEXT,
+        handed_to      TEXT,
+        handover_notes TEXT    DEFAULT '',
+        handover_time  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS patients (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1202,3 +1246,74 @@ def load_pathways_from_db() -> dict:
             }
 
     return pathways
+
+
+# ---------------------------------------------------------------------------
+# Login audit
+# ---------------------------------------------------------------------------
+
+def save_login_audit(user_email: str, user_name: str = "", user_role: str = "",
+                     action: str = "login_success",
+                     session_duration_minutes: int = 0) -> None:
+    """Record a login / logout / failure event."""
+    with _conn() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO login_audit
+                    (user_email, user_name, user_role, action,
+                     ip_address, session_duration_minutes)
+                VALUES (:email, :name, :role, :action, :ip, :dur)
+            """),
+            {
+                "email": user_email, "name": user_name, "role": user_role,
+                "action": action, "ip": "Not captured",
+                "dur": session_duration_minutes,
+            },
+        )
+
+
+def get_login_audit(limit: int = 50) -> list[dict]:
+    """Return recent login audit rows, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM login_audit
+                ORDER BY timestamp DESC
+                LIMIT :lim
+            """),
+            {"lim": limit},
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Shift handovers
+# ---------------------------------------------------------------------------
+
+def save_shift_handover(nhs_number: str, handed_from: str,
+                        handed_to: str, handover_notes: str = "") -> None:
+    """Record a shift handover for a patient."""
+    with _conn() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO shift_handovers
+                    (nhs_number, handed_from, handed_to, handover_notes)
+                VALUES (:nhs, :from_, :to_, :notes)
+            """),
+            {"nhs": nhs_number, "from_": handed_from,
+             "to_": handed_to, "notes": handover_notes},
+        )
+
+
+def get_shift_handovers(nhs_number: str) -> list[dict]:
+    """Return all shift handovers for a patient, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT * FROM shift_handovers
+                WHERE nhs_number = :nhs
+                ORDER BY handover_time DESC
+            """),
+            {"nhs": nhs_number},
+        ).fetchall()
+        return [_row(r) for r in rows]

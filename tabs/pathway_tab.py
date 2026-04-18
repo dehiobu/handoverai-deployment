@@ -18,6 +18,7 @@ from src.database import (
     save_safeguarding_flag, get_safeguarding_flags,
     update_discharge_checklist, get_discharge_checklist,
     get_patient_timeline, get_patient,
+    save_shift_handover, get_shift_handovers,
 )
 
 
@@ -1270,6 +1271,102 @@ def _render_letters_section(pathway: dict, pkey: str) -> None:
             st.info("Complete Stage 10 (Discharge) to unlock.")
 
 
+# ── Shift Handover ─────────────────────────────────────────────────────────────
+
+# Known users for the handover dropdown (mirrors demo users)
+_HANDOVER_USERS = [
+    "Dr D. Ehiobu (GP)",
+    "Dr Wake-Trent (Consultant)",
+    "Nurse Jones (Nurse)",
+    "Practice Manager (Manager)",
+    "Other — enter below",
+]
+
+
+def _render_shift_handover(nhs: str, pkey: str) -> None:
+    """Shift handover section: hand over patient care to another clinician."""
+    from src.auth import get_user_name, get_user_role  # noqa: PLC0415
+
+    st.subheader("Shift Handover")
+
+    current_user  = get_user_name()
+    current_role  = get_user_role().title()
+    handovers     = get_shift_handovers(nhs)
+    latest        = handovers[0] if handovers else None
+
+    # Current clinician on duty
+    if latest:
+        st.markdown(
+            f'<div style="background:#E8F5E9;border-left:4px solid #009639;'
+            f'padding:0.6rem 1rem;border-radius:4px;margin-bottom:0.75rem">'
+            f'<b>Currently on duty:</b> {latest["handed_to"]}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div style="background:#E8EEF8;border-left:4px solid #005EB8;'
+            f'padding:0.6rem 1rem;border-radius:4px;margin-bottom:0.75rem">'
+            f'<b>Clinician on duty:</b> {current_user} ({current_role})'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Handover form
+    with st.expander("Record Shift Handover", expanded=False):
+        with st.form(key=f"handover_form_{pkey}"):
+            hand_to_select = st.selectbox(
+                "Hand over to:",
+                _HANDOVER_USERS,
+                key=f"handover_to_{pkey}",
+            )
+            hand_to_custom = st.text_input(
+                "If 'Other', enter name and role:",
+                placeholder="Dr Smith (Registrar)",
+            )
+            handover_notes = st.text_area(
+                "Handover notes",
+                placeholder=(
+                    "Brief clinical summary, outstanding tasks, "
+                    "concerns to monitor, medications due..."
+                ),
+                height=120,
+            )
+            submitted = st.form_submit_button("Confirm Handover", type="primary")
+
+        if submitted:
+            handed_to = (
+                hand_to_custom.strip()
+                if hand_to_select == "Other — enter below" and hand_to_custom.strip()
+                else hand_to_select
+            )
+            handed_from = f"{current_user} ({current_role})"
+            try:
+                save_shift_handover(
+                    nhs_number=nhs,
+                    handed_from=handed_from,
+                    handed_to=handed_to,
+                    handover_notes=handover_notes.strip(),
+                )
+                st.session_state["active_handover"] = {"on_duty": handed_to}
+                st.success(f"Handover recorded — patient care handed to {handed_to}.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Could not save handover: {exc}")
+
+    # Handover history
+    if handovers:
+        with st.expander(f"Handover History ({len(handovers)} entries)", expanded=False):
+            for h in handovers:
+                ts = _fmt_dt(h.get("handover_time"), 16).replace("T", " ")
+                st.markdown(
+                    f"**{ts}** — From: {h['handed_from']} → To: {h['handed_to']}"
+                )
+                if h.get("handover_notes"):
+                    st.caption(h["handover_notes"])
+                st.markdown("---")
+
+
 # ── Main render ────────────────────────────────────────────────────────────────
 
 def render_pathway() -> None:
@@ -1478,6 +1575,10 @@ def render_pathway() -> None:
     # ── Patient Journey Timeline ──────────────────────────────────────────────
     st.markdown("---")
     _render_timeline(selected_nhs, pkey)
+
+    # ── Shift Handover ───────────────────────────────────────────────────────
+    st.markdown("---")
+    _render_shift_handover(selected_nhs, pkey)
 
     # ── Full pathway export ──────────────────────────────────────────────────
     st.markdown("---")

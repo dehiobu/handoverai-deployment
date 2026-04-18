@@ -183,6 +183,16 @@ def _send_assignment_email(doctor: dict, patient_input: str, triage_decision: st
 
 def render_triage() -> None:
     """Render the Triage tab."""
+    # Role guard — nurses and managers cannot run triage assessments
+    from src.auth import can_access, get_user_role  # noqa: PLC0415
+    if not can_access("triage"):
+        role = get_user_role()
+        st.info(
+            f"The Triage tab is not available for your role ({role.title()}). "
+            "Contact your administrator if you need access."
+        )
+        return
+
     # Phase 4 — apply demo scenario pre-fill set by sidebar button
     if "load_scenario" in st.session_state:
         st.session_state["patient_input"] = st.session_state.pop("load_scenario")
@@ -506,7 +516,7 @@ def render_triage() -> None:
                             "Additional details (optional)",
                             placeholder="Any further context...",
                         )
-                        submitted = st.form_submit_button("Submit Override")
+                        submitted = st.form_submit_button("Submit Override", type="primary")
 
                     if submitted:
                         if override_decision == "-- No override --":
