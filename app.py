@@ -389,11 +389,6 @@ def _render_login_page() -> None:
             unsafe_allow_html=True,
         )
 
-        # Surface any Supabase configuration errors before the user even tries
-        cfg_err = st.session_state.pop("_auth_config_error", None)
-        if cfg_err:
-            st.error(f"Configuration error: {cfg_err}")
-
         if submitted:
             if not email or not password:
                 st.error("Please enter your username/email and password.")
@@ -401,12 +396,6 @@ def _render_login_page() -> None:
 
             with st.spinner("Signing in..."):
                 result = login(email.strip(), password)
-
-            # Re-check config error that may have been set during the login attempt
-            cfg_err = st.session_state.pop("_auth_config_error", None)
-            if cfg_err:
-                st.error(f"Configuration error: {cfg_err}")
-                return
 
             if result["success"]:
                 user = result["user"]
