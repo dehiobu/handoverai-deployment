@@ -343,12 +343,12 @@ def _render_login_page() -> None:
         """, unsafe_allow_html=True)
 
     with right_col:
-        st.markdown("""
-        <div class="login-right">
-            <h2>Welcome back</h2>
-            <p>Sign in to HandoverAI</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            '<h2 style="color:#003087;font-size:1.8rem;margin:0 0 0.1rem 0">Welcome back</h2>'
+            '<p style="color:#4a5568;font-size:0.95rem;margin:0 0 1.2rem 0">'
+            'Sign in to HandoverAI</p>',
+            unsafe_allow_html=True,
+        )
 
         with st.form("login_form", clear_on_submit=False):
             email    = st.text_input("Username or Email",
@@ -372,13 +372,24 @@ def _render_login_page() -> None:
             unsafe_allow_html=True,
         )
 
+        # Surface any Supabase configuration errors before the user even tries
+        cfg_err = st.session_state.pop("_auth_config_error", None)
+        if cfg_err:
+            st.error(f"Configuration error: {cfg_err}")
+
         if submitted:
             if not email or not password:
-                st.error("Please enter your email and password.")
+                st.error("Please enter your username/email and password.")
                 return
 
             with st.spinner("Signing in..."):
                 result = login(email.strip(), password)
+
+            # Re-check config error that may have been set during the login attempt
+            cfg_err = st.session_state.pop("_auth_config_error", None)
+            if cfg_err:
+                st.error(f"Configuration error: {cfg_err}")
+                return
 
             if result["success"]:
                 user = result["user"]

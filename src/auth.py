@@ -34,9 +34,27 @@ def _get_supabase_creds() -> tuple[str | None, str | None]:
 
 
 def init_supabase_client():
-    """Return a Supabase client, or None if credentials are not configured."""
+    """Return a Supabase client, or None if credentials are not configured.
+
+    Validates that the key looks like a Supabase JWT (starts with 'eyJ' and is
+    >100 chars).  A short key means the .env has the database password rather
+    than the API anon/service key — catches this early with a clear message.
+    """
     url, key = _get_supabase_creds()
     if not url or not key:
+        return None
+    if not key.startswith("eyJ") or len(key) < 100:
+        # Store warning in session state so the login page can surface it
+        try:
+            import streamlit as _st  # noqa: PLC0415
+            _st.session_state["_auth_config_error"] = (
+                "SUPABASE_KEY appears to be the database password, not the API key. "
+                "Set SUPABASE_KEY to the **anon** (or **service_role**) JWT from "
+                "Supabase → Project Settings → API. It should start with 'eyJ' and "
+                "be ~200–400 characters long."
+            )
+        except Exception:
+            pass
         return None
     try:
         from supabase import create_client  # noqa: PLC0415
