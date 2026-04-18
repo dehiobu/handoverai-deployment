@@ -46,49 +46,84 @@ def init_supabase_client():
 
 
 # ---------------------------------------------------------------------------
+# Alias map — short usernames for demo / clinical convenience
+# ---------------------------------------------------------------------------
+
+ALIAS_MAP: dict[str, str] = {
+    "admin1":  "dennis.ehiobu@sutatscode.com",
+    "gp1":     "dr.ehiobu@holmhurst.nhs.uk",
+    "cons1":   "dr.waketrent@eastsurrey.nhs.uk",
+    "nurse1":  "nurse.jones@holmhurst.nhs.uk",
+    "mgr1":    "manager@holmhurst.nhs.uk",
+}
+
+
+def resolve_alias(username: str) -> tuple[str, str | None]:
+    """Return (real_email, alias_used_or_None) for a username-or-email input.
+
+    If the input is a known alias, the mapped email is returned and the alias
+    is captured for audit.  Otherwise the input is returned unchanged.
+    """
+    stripped = username.strip().lower()
+    if stripped in ALIAS_MAP:
+        return ALIAS_MAP[stripped], stripped
+    return username.strip(), None
+
+
+# ---------------------------------------------------------------------------
 # Auth actions
 # ---------------------------------------------------------------------------
 
-def login(email: str, password: str) -> dict:
-    """Authenticate with email + password.
+def login(username: str, password: str) -> dict:
+    """Authenticate with username-or-email + password.
+
+    Aliases (e.g. 'admin1') are resolved to real emails before the Supabase
+    call.  The alias is recorded in the returned dict for audit purposes.
 
     Returns dict with keys:
-        success (bool), user (dict | None), error (str | None)
+        success (bool), user (dict | None), error (str | None),
+        alias_used (str | None)
     """
+    real_email, alias_used = resolve_alias(username)
+
     client = init_supabase_client()
     if client is None:
         return {
-            "success": False, "user": None,
+            "success": False, "user": None, "alias_used": alias_used,
             "error": "Supabase not configured — add SUPABASE_URL and SUPABASE_KEY.",
         }
 
     try:
         response = client.auth.sign_in_with_password(
-            {"email": email, "password": password}
+            {"email": real_email, "password": password}
         )
         user    = response.user
         session = response.session
         meta    = user.user_metadata or {}
         role    = meta.get("role", "gp")
-        name    = meta.get("name", email.split("@")[0].replace(".", " ").title())
+        name    = meta.get("name", real_email.split("@")[0].replace(".", " ").title())
 
         return {
-            "success": True,
-            "error":   None,
+            "success":    True,
+            "error":      None,
+            "alias_used": alias_used,
             "user": {
-                "id":            user.id,
-                "email":         user.email,
-                "name":          name,
-                "role":          role,
-                "last_sign_in":  user.last_sign_in_at,
+                "id":           user.id,
+                "email":        user.email,
+                "name":         name,
+                "role":         role,
+                "alias":        alias_used,
+                "last_sign_in": user.last_sign_in_at,
             },
             "access_token": session.access_token,
         }
     except Exception as exc:
         err = str(exc)
         if any(k in err.lower() for k in ("invalid login", "invalid_grant", "credentials")):
-            return {"success": False, "user": None, "error": "Invalid email or password."}
-        return {"success": False, "user": None, "error": f"Login error: {err}"}
+            return {"success": False, "user": None, "alias_used": alias_used,
+                    "error": "Invalid username/email or password."}
+        return {"success": False, "user": None, "alias_used": alias_used,
+                "error": f"Login error: {err}"}
 
 
 def logout() -> None:
@@ -128,6 +163,12 @@ def get_user_name() -> str:
 def get_user_email() -> str:
     user = get_current_user()
     return user.get("email", "") if user else ""
+
+
+def get_user_alias() -> str | None:
+    """Return the alias used to log in, or None if a full email was used."""
+    user = get_current_user()
+    return user.get("alias") if user else None
 
 
 # ---------------------------------------------------------------------------

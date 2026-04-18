@@ -121,14 +121,15 @@ def _conn():
 _PG_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS login_audit (
-        id                      SERIAL PRIMARY KEY,
-        user_email              TEXT,
-        user_name               TEXT      DEFAULT '',
-        user_role               TEXT      DEFAULT '',
-        action                  TEXT,
-        ip_address              TEXT      DEFAULT 'Not captured',
-        timestamp               TIMESTAMP DEFAULT NOW(),
-        session_duration_minutes INTEGER  DEFAULT 0
+        id                       SERIAL PRIMARY KEY,
+        user_email               TEXT,
+        user_name                TEXT      DEFAULT '',
+        user_role                TEXT      DEFAULT '',
+        action                   TEXT,
+        alias_used               TEXT      DEFAULT '',
+        ip_address               TEXT      DEFAULT 'Not captured',
+        timestamp                TIMESTAMP DEFAULT NOW(),
+        session_duration_minutes INTEGER   DEFAULT 0
     )
     """,
     """
@@ -317,6 +318,7 @@ _SQLITE_DDL: list[str] = [
         user_name                TEXT    DEFAULT '',
         user_role                TEXT    DEFAULT '',
         action                   TEXT,
+        alias_used               TEXT    DEFAULT '',
         ip_address               TEXT    DEFAULT 'Not captured',
         timestamp                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         session_duration_minutes INTEGER DEFAULT 0
@@ -533,6 +535,20 @@ def init_db() -> None:
         ddl = _PG_DDL if _IS_POSTGRES else _SQLITE_DDL
         for stmt in ddl:
             conn.execute(text(stmt))
+
+        # ── Incremental migrations (safe to re-run) ──────────────────────────
+        # Add alias_used column to login_audit (introduced after initial schema)
+        if _IS_POSTGRES:
+            conn.execute(text(
+                "ALTER TABLE login_audit ADD COLUMN IF NOT EXISTS alias_used TEXT DEFAULT ''"
+            ))
+        else:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE login_audit ADD COLUMN alias_used TEXT DEFAULT ''"
+                ))
+            except Exception:
+                pass  # Column already exists in SQLite
 
 
 # ---------------------------------------------------------------------------
@@ -1253,7 +1269,7 @@ def load_pathways_from_db() -> dict:
 # ---------------------------------------------------------------------------
 
 def save_login_audit(user_email: str, user_name: str = "", user_role: str = "",
-                     action: str = "login_success",
+                     action: str = "login_success", alias_used: str = "",
                      session_duration_minutes: int = 0) -> None:
     """Record a login / logout / failure event."""
     with _conn() as conn:
@@ -1261,13 +1277,13 @@ def save_login_audit(user_email: str, user_name: str = "", user_role: str = "",
             text("""
                 INSERT INTO login_audit
                     (user_email, user_name, user_role, action,
-                     ip_address, session_duration_minutes)
-                VALUES (:email, :name, :role, :action, :ip, :dur)
+                     alias_used, ip_address, session_duration_minutes)
+                VALUES (:email, :name, :role, :action, :alias, :ip, :dur)
             """),
             {
                 "email": user_email, "name": user_name, "role": user_role,
-                "action": action, "ip": "Not captured",
-                "dur": session_duration_minutes,
+                "action": action, "alias": alias_used or "",
+                "ip": "Not captured", "dur": session_duration_minutes,
             },
         )
 

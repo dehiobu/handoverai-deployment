@@ -351,7 +351,8 @@ def _render_login_page() -> None:
         """, unsafe_allow_html=True)
 
         with st.form("login_form", clear_on_submit=False):
-            email    = st.text_input("Email address", placeholder="you@nhs.uk")
+            email    = st.text_input("Username or Email",
+                                     placeholder="e.g. gp1  or  you@nhs.uk")
             password = st.text_input("Password", type="password",
                                      placeholder="Enter your password")
             submitted = st.form_submit_button("Sign in", type="primary",
@@ -392,6 +393,7 @@ def _render_login_page() -> None:
                         user_name=user["name"],
                         user_role=user["role"],
                         action="login_success",
+                        alias_used=result.get("alias_used") or "",
                     )
                 except Exception:
                     pass
@@ -404,6 +406,7 @@ def _render_login_page() -> None:
                     save_login_audit(
                         user_email=email.strip(),
                         action="login_failed",
+                        alias_used=result.get("alias_used") or "",
                     )
                 except Exception:
                     pass

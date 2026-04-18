@@ -369,11 +369,11 @@ def _render_login_audit_section() -> None:
     for r in audit_rows:
         action = r.get("action", "")
         rows.append({
-            "Timestamp":   (r.get("timestamp") or "")[:16].replace("T", " "),
-            "User":        r.get("user_name") or r.get("user_email", "—"),
-            "Email":       r.get("user_email", "—"),
-            "Role":        r.get("user_role", "—"),
-            "Event":       _ACTION_LABELS.get(action, action),
+            "Timestamp":      (r.get("timestamp") or "")[:16].replace("T", " "),
+            "User":           r.get("user_name") or r.get("user_email", "—"),
+            "Alias":          r.get("alias_used") or "—",
+            "Role":           r.get("user_role", "—"),
+            "Event":          _ACTION_LABELS.get(action, action),
             "Duration (min)": r.get("session_duration_minutes") or "—",
         })
 

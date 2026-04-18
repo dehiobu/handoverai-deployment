@@ -28,6 +28,15 @@ SUPABASE_SERVICE_KEY = (
 
 DEMO_PASSWORD = "HandoverAI2026!"
 
+# Short aliases accepted at the login screen (defined in src/auth.py ALIAS_MAP)
+ALIAS_MAP = {
+    "dennis.ehiobu@sutatscode.com":    "admin1",
+    "dr.ehiobu@holmhurst.nhs.uk":      "gp1",
+    "dr.waketrent@eastsurrey.nhs.uk":  "cons1",
+    "nurse.jones@holmhurst.nhs.uk":    "nurse1",
+    "manager@holmhurst.nhs.uk":        "mgr1",
+}
+
 DEMO_USERS = [
     {
         "email":    "dennis.ehiobu@sutatscode.com",
@@ -112,9 +121,13 @@ def main() -> None:
     print("Demo credentials:")
     print(f"  Password for all accounts: {DEMO_PASSWORD}")
     print()
+    print(f"  {'Alias':<10}  {'Email':<45}  Role")
+    print(f"  {'-'*10}  {'-'*45}  ----")
     for u in DEMO_USERS:
-        print(f"  {u['email']:<45} role: {u['metadata']['role']}")
+        alias = ALIAS_MAP.get(u["email"], "—")
+        print(f"  {alias:<10}  {u['email']:<45}  {u['metadata']['role']}")
     print()
+    print("[INFO] Users can log in with the alias OR full email.")
     print("[INFO] Users can change their password after first login.")
     print("[INFO] Add SUPABASE_URL and SUPABASE_KEY to Streamlit Cloud secrets.")
 

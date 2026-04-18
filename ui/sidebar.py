@@ -7,7 +7,7 @@ import streamlit as st
 
 import config
 from src.auth import (
-    get_current_user, get_user_name, get_user_role, get_user_email,
+    get_current_user, get_user_name, get_user_role, get_user_alias,
     logout, is_authenticated,
 )
 from src.database import save_login_audit
@@ -59,15 +59,15 @@ def _render_user_panel() -> None:
     user = get_current_user() or {}
     name = get_user_name()
     role = get_user_role()
-    email = get_user_email()
+    alias = get_user_alias()
     login_time = st.session_state.get("auth_login_time")
     role_label = _ROLE_LABELS.get(role, role.title())
 
     st.markdown("### Logged In As")
     st.markdown(f"**{name}**")
     st.markdown(f"Role: **{role_label}**")
-    if email:
-        st.caption(email)
+    if alias:
+        st.caption(f"Username: {alias}")
     if login_time:
         st.caption(f"Last login: {login_time.strftime('%H:%M, %d %b %Y')}")
 
@@ -76,16 +76,16 @@ def _render_user_panel() -> None:
         st.info(f"On duty: {handover['on_duty']}")
 
     if st.button("Logout", key="sidebar_logout"):
-        login_time = st.session_state.get("auth_login_time")
         dur = 0
         if login_time:
             dur = int((datetime.now() - login_time).total_seconds() / 60)
         try:
             save_login_audit(
-                user_email=email,
+                user_email=user.get("email", ""),
                 user_name=name,
                 user_role=role,
                 action="logout",
+                alias_used=alias or "",
                 session_duration_minutes=dur,
             )
         except Exception:
