@@ -1,13 +1,16 @@
 """
 scripts/create_demo_users.py — Create demo users in Supabase Auth.
 
-Run once after configuring SUPABASE_URL and SUPABASE_KEY (or SUPABASE_SERVICE_KEY).
+Run ONCE manually after setting up Supabase. Never imported by the app.
+
+Requirements in .env:
+    SUPABASE_URL         = https://<project>.supabase.co
+    SUPABASE_SERVICE_KEY = <service_role key from Project Settings -> API>
+
+The service_role key is required — the anon key cannot create users.
 
 Usage:
     python scripts/create_demo_users.py
-
-Requires SUPABASE_URL and SUPABASE_SERVICE_KEY (service_role key, not anon key)
-in .env or environment — the service key bypasses email confirmation.
 """
 import os
 import sys
@@ -18,57 +21,42 @@ try:
 except ImportError:
     pass
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-# Use the service_role key so we can create users without email confirmation
-SUPABASE_SERVICE_KEY = (
-    os.getenv("SUPABASE_SERVICE_KEY")
-    or os.getenv("SUPABASE_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-)
+SUPABASE_URL         = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
 DEMO_PASSWORD = "HandoverAI2026!"
 
-# Short aliases accepted at the login screen (defined in src/auth.py ALIAS_MAP)
 ALIAS_MAP = {
-    "dennis.ehiobu@sutatscode.com":    "admin1",
-    "dr.ehiobu@holmhurst.nhs.uk":      "gp1",
-    "dr.waketrent@eastsurrey.nhs.uk":  "cons1",
-    "nurse.jones@holmhurst.nhs.uk":    "nurse1",
-    "manager@holmhurst.nhs.uk":        "mgr1",
+    "dennis.ehiobu@sutatscode.com":   "admin1",
+    "dr.ehiobu@holmhurst.nhs.uk":     "gp1",
+    "dr.waketrent@eastsurrey.nhs.uk": "cons1",
+    "nurse.jones@holmhurst.nhs.uk":   "nurse1",
+    "manager@holmhurst.nhs.uk":       "mgr1",
 }
 
 DEMO_USERS = [
-    {
-        "email":    "dennis.ehiobu@sutatscode.com",
-        "password": DEMO_PASSWORD,
-        "metadata": {"name": "Dennis Ehiobu", "role": "admin"},
-    },
-    {
-        "email":    "dr.ehiobu@holmhurst.nhs.uk",
-        "password": DEMO_PASSWORD,
-        "metadata": {"name": "Dr D. Ehiobu", "role": "gp"},
-    },
-    {
-        "email":    "dr.waketrent@eastsurrey.nhs.uk",
-        "password": DEMO_PASSWORD,
-        "metadata": {"name": "Dr Wake-Trent", "role": "consultant"},
-    },
-    {
-        "email":    "nurse.jones@holmhurst.nhs.uk",
-        "password": DEMO_PASSWORD,
-        "metadata": {"name": "Nurse Jones", "role": "nurse"},
-    },
-    {
-        "email":    "manager@holmhurst.nhs.uk",
-        "password": DEMO_PASSWORD,
-        "metadata": {"name": "Practice Manager", "role": "manager"},
-    },
+    {"email": "dennis.ehiobu@sutatscode.com",   "metadata": {"name": "Dennis Ehiobu",    "role": "admin"}},
+    {"email": "dr.ehiobu@holmhurst.nhs.uk",      "metadata": {"name": "Dr D. Ehiobu",     "role": "gp"}},
+    {"email": "dr.waketrent@eastsurrey.nhs.uk",  "metadata": {"name": "Dr Wake-Trent",    "role": "consultant"}},
+    {"email": "nurse.jones@holmhurst.nhs.uk",    "metadata": {"name": "Nurse Jones",      "role": "nurse"}},
+    {"email": "manager@holmhurst.nhs.uk",        "metadata": {"name": "Practice Manager", "role": "manager"}},
 ]
 
 
 def main() -> None:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        print("[ERROR] SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in .env")
+    # ── Pre-flight checks ────────────────────────────────────────────────────
+    errors = []
+    if not SUPABASE_URL:
+        errors.append("SUPABASE_URL is not set in .env")
+    if not SUPABASE_SERVICE_KEY:
+        errors.append(
+            "SUPABASE_SERVICE_KEY is not set in .env\n"
+            "  Get it from: Supabase dashboard -> Project Settings -> API -> service_role key\n"
+            "  It is different from the anon/public key."
+        )
+    if errors:
+        for e in errors:
+            print(f"[ERROR] {e}")
         sys.exit(1)
 
     try:
@@ -77,59 +65,65 @@ def main() -> None:
         print("[ERROR] supabase package not installed. Run: pip install supabase")
         sys.exit(1)
 
-    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    print(f"[INFO] Supabase URL : {SUPABASE_URL}")
+    print(f"[INFO] Service key  : {SUPABASE_SERVICE_KEY[:12]}... (length {len(SUPABASE_SERVICE_KEY)})")
+    print()
 
-    print(f"[INFO] Connecting to Supabase: {SUPABASE_URL}")
+    try:
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    except Exception as exc:
+        print(f"[ERROR] Could not create Supabase client: {exc}")
+        sys.exit(1)
+
     print(f"[INFO] Creating {len(DEMO_USERS)} demo users...")
     print()
+
+    created = skipped = failed = 0
 
     for user in DEMO_USERS:
         email = user["email"]
         try:
-            # admin.create_user is available with service_role key
-            response = client.auth.admin.create_user({
-                "email":            email,
-                "password":         user["password"],
-                "user_metadata":    user["metadata"],
-                "email_confirm":    True,   # skip email confirmation
+            client.auth.admin.create_user({
+                "email":         email,
+                "password":      DEMO_PASSWORD,
+                "user_metadata": user["metadata"],
+                "email_confirm": True,
             })
-            print(f"[SUCCESS] Created: {email} | role: {user['metadata']['role']}")
+            print(f"[SUCCESS] Created  : {email}  (role: {user['metadata']['role']})")
+            created += 1
         except Exception as exc:
             err = str(exc)
-            if "already been registered" in err or "already exists" in err.lower():
-                print(f"[SKIP]    Already exists: {email}")
-                # Update metadata in case role changed
+            if "already" in err.lower():
+                print(f"[SKIP]    Exists    : {email}")
+                # Refresh metadata so role is always current
                 try:
-                    # List users and find by email to update
-                    users_resp = client.auth.admin.list_users()
-                    for u in users_resp:
+                    for u in client.auth.admin.list_users():
                         if u.email == email:
                             client.auth.admin.update_user_by_id(
-                                u.id,
-                                {"user_metadata": user["metadata"]},
+                                u.id, {"user_metadata": user["metadata"]}
                             )
-                            print(f"         Metadata updated for {email}")
+                            print(f"           Metadata refreshed for {email}")
                             break
                 except Exception:
                     pass
+                skipped += 1
             else:
-                print(f"[ERROR]   Failed to create {email}: {exc}")
+                print(f"[ERROR]   Failed    : {email}  -> {exc}")
+                failed += 1
 
     print()
-    print("[INFO] Done.")
+    print(f"[INFO] Done — created: {created}, skipped: {skipped}, failed: {failed}")
     print()
-    print("Demo credentials:")
-    print(f"  Password for all accounts: {DEMO_PASSWORD}")
-    print()
-    print(f"  {'Alias':<10}  {'Email':<45}  Role")
-    print(f"  {'-'*10}  {'-'*45}  ----")
+    print("  Alias       Email                                          Role")
+    print("  ----------  ---------------------------------------------  -----------")
     for u in DEMO_USERS:
         alias = ALIAS_MAP.get(u["email"], "—")
         print(f"  {alias:<10}  {u['email']:<45}  {u['metadata']['role']}")
     print()
-    print("[INFO] Users can log in with the alias OR full email.")
-    print("[INFO] Users can change their password after first login.")
-    print("[INFO] Add SUPABASE_URL and SUPABASE_KEY to Streamlit Cloud secrets.")
+    print(f"  Password for all accounts: {DEMO_PASSWORD}")
+    print()
+    print("[INFO] Login with alias (e.g. admin1) OR full email + password above.")
+    print("[INFO] Add SUPABASE_URL + SUPABASE_KEY (anon) to Streamlit Cloud secrets.")
 
 
 if __name__ == "__main__":
