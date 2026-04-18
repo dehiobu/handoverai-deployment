@@ -309,38 +309,52 @@ def _render_login_page() -> None:
 
     with left_col:
         st.markdown("""
-        <div class="login-left">
-            <div class="login-nhs-badge">NHS</div>
-            <h1>HandoverAI</h1>
-            <p>Supporting NHS clinical teams with safe, explainable,
-               evidence-based triage decisions</p>
+<div style="background:linear-gradient(160deg,#003087 0%,#005EB8 100%);
+            border-radius:0.75rem;padding:2.5rem 2rem;min-height:520px;color:#fff">
 
-            <div class="login-feature">
-                <span class="login-feature-icon">⚡</span>
-                <span>AI-powered triage in under 10 seconds</span>
-            </div>
-            <div class="login-feature">
-                <span class="login-feature-icon">🔍</span>
-                <span>Full explainability and audit trail</span>
-            </div>
-            <div class="login-feature">
-                <span class="login-feature-icon">📋</span>
-                <span>10-stage patient pathway tracking</span>
-            </div>
-            <div class="login-feature">
-                <span class="login-feature-icon">🔄</span>
-                <span>Multi-user shift handover</span>
-            </div>
-            <div class="login-feature">
-                <span class="login-feature-icon">🏥</span>
-                <span>Role-based access for GPs, nurses, managers</span>
-            </div>
+  <div style="display:inline-block;background:#fff;color:#003087;font-weight:800;
+              font-size:1.3rem;padding:4px 14px;border-radius:4px;
+              margin-bottom:1rem;letter-spacing:0.05em">NHS</div>
 
-            <div class="login-footer">
-                Sutatscode Ltd &nbsp;|&nbsp; Synthetic Data Only &nbsp;|&nbsp; POC v0.3.0
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+  <h1 style="color:#fff;font-size:2rem;margin:0.5rem 0 0.2rem 0">HandoverAI</h1>
+
+  <p style="color:rgba(255,255,255,0.85);font-size:0.95rem;margin:0 0 1.5rem 0">
+    Supporting NHS clinical teams with safe, explainable,
+    evidence-based triage decisions
+  </p>
+
+  <div style="display:flex;align-items:flex-start;margin-bottom:0.9rem;
+              font-size:0.9rem;color:rgba(255,255,255,0.9)">
+    <span style="font-size:1.1rem;margin-right:0.7rem;flex-shrink:0">&#9889;</span>
+    <span>AI-powered triage in under 10 seconds</span>
+  </div>
+  <div style="display:flex;align-items:flex-start;margin-bottom:0.9rem;
+              font-size:0.9rem;color:rgba(255,255,255,0.9)">
+    <span style="font-size:1.1rem;margin-right:0.7rem;flex-shrink:0">&#128269;</span>
+    <span>Full explainability and audit trail</span>
+  </div>
+  <div style="display:flex;align-items:flex-start;margin-bottom:0.9rem;
+              font-size:0.9rem;color:rgba(255,255,255,0.9)">
+    <span style="font-size:1.1rem;margin-right:0.7rem;flex-shrink:0">&#128203;</span>
+    <span>10-stage patient pathway tracking</span>
+  </div>
+  <div style="display:flex;align-items:flex-start;margin-bottom:0.9rem;
+              font-size:0.9rem;color:rgba(255,255,255,0.9)">
+    <span style="font-size:1.1rem;margin-right:0.7rem;flex-shrink:0">&#128260;</span>
+    <span>Multi-user shift handover</span>
+  </div>
+  <div style="display:flex;align-items:flex-start;margin-bottom:0.9rem;
+              font-size:0.9rem;color:rgba(255,255,255,0.9)">
+    <span style="font-size:1.1rem;margin-right:0.7rem;flex-shrink:0">&#127973;</span>
+    <span>Role-based access for GPs, nurses, managers</span>
+  </div>
+
+  <div style="margin-top:2rem;font-size:0.78rem;color:rgba(255,255,255,0.55);
+              border-top:1px solid rgba(255,255,255,0.2);padding-top:0.75rem">
+    Sutatscode Ltd &nbsp;|&nbsp; Synthetic Data Only &nbsp;|&nbsp; POC v0.3.0
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     with right_col:
         st.markdown(
@@ -360,12 +374,15 @@ def _render_login_page() -> None:
 
         st.caption("Forgot password? Contact dennis.ehiobu@sutatscode.com")
 
-        st.markdown("""
-        <div class="login-amber-box">
-            ⚠️ <strong>Safety notice:</strong> This system uses <strong>synthetic data
-            only</strong> — not for use with real patient data.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            '<div style="background:#FFF8E1;border-left:4px solid #FFB81C;'
+            'border-radius:4px;padding:0.6rem 0.9rem;font-size:0.85rem;color:#5a4200;'
+            'margin-top:0.75rem">'
+            '&#9888;&#65039; <strong>Safety notice:</strong> This system uses '
+            '<strong>synthetic data only</strong> — not for use with real patient data.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         st.markdown(
             "<br><center><small>Authorised users only — Sutatscode Ltd</small></center>",
