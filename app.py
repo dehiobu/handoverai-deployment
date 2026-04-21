@@ -144,23 +144,72 @@ st.markdown("""
         border-top: 1px solid rgba(255,255,255,0.2);
         padding-top: 0.75rem;
     }
+    /* ── Login right panel ── */
+    /* Subtle NHS dot pattern + card styling on the right column */
+    [data-testid="stMainBlockContainer"] > div > div > div > div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
+        background-color: #f7faff;
+        background-image: radial-gradient(circle, #c8ddef 1px, transparent 1px);
+        background-size: 22px 22px;
+        border-radius: 0.75rem;
+        border: 1px solid #dde3ec;
+        padding: 1.5rem 2rem !important;
+    }
     .login-right {
-        background: #ffffff;
+        background: transparent;
         border-radius: 0.75rem;
         padding: 2.5rem 2.5rem;
         min-height: 520px;
-        border: 1px solid #dde3ec;
     }
     .login-right h2 { color: #003087; font-size: 1.6rem; margin: 0 0 0.2rem 0; }
     .login-right p  { color: #4a5568; font-size: 0.9rem; margin: 0 0 1.5rem 0; }
-    .login-amber-box {
+    /* Gradient Sign in button */
+    [data-testid="stFormSubmitButton"] button {
+        background: linear-gradient(90deg, #005EB8 0%, #003087 100%) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 0.4rem !important;
+        padding: 0.55rem 2rem !important;
+        font-size: 1rem !important;
+        letter-spacing: 0.02em !important;
+        box-shadow: 0 2px 8px rgba(0,48,135,0.25) !important;
+        transition: box-shadow 0.2s ease !important;
+    }
+    [data-testid="stFormSubmitButton"] button:hover {
+        box-shadow: 0 4px 14px rgba(0,48,135,0.4) !important;
+    }
+    /* Enhanced amber safety notice */
+    .login-amber-enhanced {
         background: #FFF8E1;
-        border-left: 4px solid #FFB81C;
-        border-radius: 4px;
-        padding: 0.6rem 0.9rem;
+        border-left: 5px solid #FFB81C;
+        border-radius: 0 6px 6px 0;
+        padding: 0.75rem 1rem;
         font-size: 0.85rem;
         color: #5a4200;
-        margin-top: 1rem;
+        margin-top: 0.75rem;
+        box-shadow: 2px 2px 8px rgba(255,184,28,0.18);
+    }
+    /* Login stat cards */
+    .login-stat-card {
+        flex: 1;
+        background: #EBF3FB;
+        border-radius: 8px;
+        padding: 0.7rem 0.5rem;
+        text-align: center;
+        border: 1px solid #C8DDEF;
+    }
+    .login-stat-card .stat-num {
+        font-size: 1.2rem; font-weight: 800; color: #003087;
+    }
+    .login-stat-card .stat-lbl {
+        font-size: 0.72rem; color: #4a6080; margin-top: 2px;
+    }
+    /* Trust badge chips */
+    .trust-chip {
+        font-size: 0.72rem; color: #4a6080;
+        background: #edf2f7; padding: 3px 8px;
+        border-radius: 4px; border: 1px solid #dde3ec;
+        display: inline-block; margin: 2px;
     }
 
     /* ── Global selectbox / multiselect ── */
@@ -357,28 +406,99 @@ def _render_login_page() -> None:
 """, unsafe_allow_html=True)
 
     with right_col:
+        # ── 1. Logo / badge row ──────────────────────────────────────────────
+        st.markdown("""
+<div style="display:flex;align-items:center;gap:0.55rem;margin-bottom:1.1rem">
+  <div style="background:#005EB8;color:#fff;font-weight:800;font-size:0.85rem;
+              padding:4px 10px;border-radius:6px;letter-spacing:0.1em;
+              box-shadow:0 2px 6px rgba(0,94,184,0.35)">AI</div>
+  <span style="color:#003087;font-size:1.25rem;font-weight:800;
+               letter-spacing:0.01em;line-height:1">HandoverAI</span>
+  <span style="color:#8a99a8;font-size:0.85rem;font-weight:400;
+               border-left:1px solid #dde3ec;padding-left:0.55rem;
+               line-height:1">GP Triage Assistant</span>
+</div>
+""", unsafe_allow_html=True)
+
+        # ── 2. Stats row ─────────────────────────────────────────────────────
+        st.markdown("""
+<div style="display:flex;gap:0.6rem;margin-bottom:1.3rem">
+  <div style="flex:1;background:#EBF3FB;border-radius:8px;padding:0.65rem 0.4rem;
+              text-align:center;border:1px solid #C8DDEF">
+    <div style="font-size:1.15rem;font-weight:800;color:#003087">&lt;10s</div>
+    <div style="font-size:0.7rem;color:#4a6080;margin-top:3px;font-weight:500">Triage time</div>
+  </div>
+  <div style="flex:1;background:#EBF3FB;border-radius:8px;padding:0.65rem 0.4rem;
+              text-align:center;border:1px solid #C8DDEF">
+    <div style="font-size:1.15rem;font-weight:800;color:#003087">10 stages</div>
+    <div style="font-size:0.7rem;color:#4a6080;margin-top:3px;font-weight:500">Clinical pathway</div>
+  </div>
+  <div style="flex:1;background:#EBF3FB;border-radius:8px;padding:0.65rem 0.4rem;
+              text-align:center;border:1px solid #C8DDEF">
+    <div style="font-size:1.15rem;font-weight:800;color:#003087">5 roles</div>
+    <div style="font-size:0.7rem;color:#4a6080;margin-top:3px;font-weight:500">Role-based access</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+        # ── Welcome heading ──────────────────────────────────────────────────
         st.markdown(
-            '<h2 style="color:#003087;font-size:1.8rem;margin:0 0 0.1rem 0">Welcome back</h2>'
-            '<p style="color:#4a5568;font-size:0.95rem;margin:0 0 1.2rem 0">'
-            'Sign in to HandoverAI</p>',
+            '<h2 style="color:#003087;font-size:1.6rem;margin:0 0 0.1rem 0">'
+            'Welcome back</h2>'
+            '<p style="color:#8a99a8;font-size:0.88rem;margin:0 0 0.9rem 0">'
+            'Sign in to your HandoverAI account</p>',
             unsafe_allow_html=True,
         )
 
+        # ── 3. Login form with icon hints ────────────────────────────────────
         with st.form("login_form", clear_on_submit=False):
-            email    = st.text_input("Username or Email",
-                                     placeholder="e.g. gp1  or  you@nhs.uk")
-            password = st.text_input("Password", type="password",
-                                     placeholder="Enter your password")
-            submitted = st.form_submit_button("Sign in", type="primary",
-                                              use_container_width=True)
+            st.markdown(
+                '<div style="font-size:0.85rem;color:#003087;font-weight:600;'
+                'margin-bottom:2px">&#128100;&nbsp; Username or Email</div>',
+                unsafe_allow_html=True,
+            )
+            email = st.text_input(
+                "Username or Email",
+                placeholder="e.g. gp1  or  you@nhs.uk",
+                label_visibility="collapsed",
+            )
+            st.markdown(
+                '<div style="font-size:0.85rem;color:#003087;font-weight:600;'
+                'margin-top:0.45rem;margin-bottom:2px">&#128274;&nbsp; Password</div>',
+                unsafe_allow_html=True,
+            )
+            password = st.text_input(
+                "Password", type="password",
+                placeholder="Enter your password",
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button(
+                "Sign in  →", type="primary", use_container_width=True
+            )
+
+        # ── 4. Trust badge row ───────────────────────────────────────────────
+        st.markdown("""
+<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:0.65rem;justify-content:center">
+  <span style="font-size:0.72rem;color:#4a6080;background:#edf2f7;
+               padding:3px 9px;border-radius:4px;border:1px solid #dde3ec">&#10003; NHS Compliant</span>
+  <span style="font-size:0.72rem;color:#4a6080;background:#edf2f7;
+               padding:3px 9px;border-radius:4px;border:1px solid #dde3ec">&#10003; DTAC Assessed</span>
+  <span style="font-size:0.72rem;color:#4a6080;background:#edf2f7;
+               padding:3px 9px;border-radius:4px;border:1px solid #dde3ec">&#10003; Synthetic Data Only</span>
+  <span style="font-size:0.72rem;color:#4a6080;background:#edf2f7;
+               padding:3px 9px;border-radius:4px;border:1px solid #dde3ec">&#10003; DCB0129 Aligned</span>
+</div>
+""", unsafe_allow_html=True)
 
         st.caption("Forgot password? Contact dennis.ehiobu@sutatscode.com")
 
+        # ── 6. Enhanced amber safety notice ─────────────────────────────────
         st.markdown(
-            '<div style="background:#FFF8E1;border-left:4px solid #FFB81C;'
-            'border-radius:4px;padding:0.6rem 0.9rem;font-size:0.85rem;color:#5a4200;'
-            'margin-top:0.75rem">'
-            '&#9888;&#65039; <strong>Safety notice:</strong> This system uses '
+            '<div style="background:#FFF8E1;border-left:5px solid #FFB81C;'
+            'border-radius:0 6px 6px 0;padding:0.75rem 1rem;font-size:0.85rem;'
+            'color:#5a4200;margin-top:0.5rem;'
+            'box-shadow:2px 2px 8px rgba(255,184,28,0.18)">'
+            '&#9888;&#65039;&nbsp;<strong>Safety notice:</strong> This system uses '
             '<strong>synthetic data only</strong> — not for use with real patient data.'
             '</div>',
             unsafe_allow_html=True,
