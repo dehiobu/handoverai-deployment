@@ -38,6 +38,12 @@ from src.database import (
     save_medication,
     save_safeguarding_flag,
     update_discharge_checklist,
+    save_consultation,
+    save_test_order,
+    update_test_result,
+    save_hospital_admission,
+    save_discharge_summary,
+    save_case_closure,
 )
 
 
@@ -46,9 +52,16 @@ from src.database import (
 # ---------------------------------------------------------------------------
 
 STAGE_LABELS = {
-    1: "Presentation", 2: "Triage",    3: "Assignment", 4: "Referral",
-    5: "Admission",    6: "Diagnosis", 7: "Treatment",  8: "Outcome",
-    9: "Aftercare",   10: "Discharge",
+    1:  "Presentation",
+    2:  "AI Triage",
+    3:  "GP Consultation",
+    4:  "Test Orders",
+    5:  "Referral",
+    6:  "Hospital Admission",
+    7:  "Discharge Summary",
+    8:  "Outcome & Follow-up",
+    9:  "Community Care",
+    10: "Case Closure",
 }
 
 
@@ -64,6 +77,44 @@ def _already_seeded(nhs: str) -> bool:
             text("SELECT id FROM patients WHERE nhs_number = :nhs"), {"nhs": nhs}
         ).fetchone()
     return row is not None
+
+
+def _gp_workflow_seeded(nhs: str) -> bool:
+    """Return True if GP consultation records already exist for this patient."""
+    with _conn() as conn:
+        row = conn.execute(
+            text("SELECT id FROM gp_consultations WHERE nhs_number = :nhs LIMIT 1"),
+            {"nhs": nhs},
+        ).fetchone()
+    return row is not None
+
+
+def update_pathway_stage_labels() -> None:
+    """Update stage_name in pathway_stages to match the new 10-stage GP pathway.
+
+    Safe to run repeatedly -- uses ON CONFLICT DO UPDATE via save_pathway_stage.
+    Only updates the label; preserves existing status and data.
+    """
+    with _conn() as conn:
+        rows = conn.execute(
+            text("SELECT nhs_number, stage_number, status, stage_data, updated_by "
+                 "FROM pathway_stages")
+        ).fetchall()
+
+    import json as _json
+    for row in rows:
+        nhs, snum, status, data_raw, updated_by = (
+            row[0], row[1], row[2], row[3], row[4]
+        )
+        new_label = STAGE_LABELS.get(snum)
+        if new_label:
+            try:
+                data = _json.loads(data_raw or "{}")
+            except Exception:
+                data = {}
+            save_pathway_stage(nhs, snum, new_label, status, data, updated_by or "system")
+
+    print("[OK] Pathway stage labels updated to new 10-stage GP pathway.")
 
 
 # ---------------------------------------------------------------------------
@@ -919,6 +970,504 @@ def seed_ward_data() -> None:
 
 
 # ---------------------------------------------------------------------------
+# GP workflow data: consultations, test orders, admissions, discharge summaries,
+# case closures -- for all 5 demo patients.
+# ---------------------------------------------------------------------------
+
+def seed_gp_workflow_data() -> None:
+    """Insert GP consultation, test order, hospital admission, discharge summary,
+    and case closure records for all 5 demo patients.
+
+    Skips any patient whose GP consultation records already exist.
+    """
+
+    # ── Patient 1: Dennis E, 58M -- RED Chest Pain -> STEMI -> PCI -> Discharged ─
+    nhs1 = "486 740 1692"
+    if _gp_workflow_seeded(nhs1):
+        print("[SKIP] GP workflow already seeded: Patient 1")
+    else:
+        # GP Consultation -- initial presentation
+        cid1 = save_consultation(
+            nhs_number=nhs1,
+            consultation_date="2026-04-08",
+            gp_name="Dr. D. Ehiobu",
+            gp_email="d.ehiobu@holmhurst.nhs.uk",
+            presenting_complaint=(
+                "58-year-old male with severe crushing chest pain radiating to "
+                "the left arm, onset 45 minutes ago. Diaphoresis and nausea."
+            ),
+            examination_findings=(
+                "Patient diaphoretic, pale, in obvious distress. "
+                "HR 102 bpm irregular. BP 94/60. RR 22. SpO2 94% on air. "
+                "Temp 36.8. 12-lead ECG: ST elevation in leads V1-V4."
+            ),
+            assessment=(
+                "ST-elevation myocardial infarction (STEMI) -- anterior wall. "
+                "High acuity cardiac emergency. NICE NG185 pathway activated."
+            ),
+            plan="999 called immediately. Aspirin 300mg given. GTN 0.4mg sublingual. "
+                 "IV access established. Cath lab at East Surrey activated.",
+            plan_detail=(
+                "Patient transferred by blue-light ambulance to East Surrey Hospital "
+                "Cardiology. Dr. D. Wake-Trent (Cardiologist) alerted."
+            ),
+            follow_up_date="2026-05-13",
+            follow_up_gp="Dr. D. Ehiobu",
+            follow_up_surgery="Holmhurst Medical Centre",
+            created_by="Dr. D. Ehiobu",
+        )
+
+        # Test orders
+        t1a = save_test_order(nhs1, "Troponin I", "blood_test", "2026-04-08",
+                              "Dr. D. Ehiobu", consultation_id=cid1, notify_nhs_app=True)
+        update_test_result(t1a, "2026-04-08", "Troponin I: 4.82 ng/mL (ref <0.04) -- markedly elevated",
+                           "abnormal", "Confirms acute MI. Cath lab activated.",
+                           "Emergency transfer to East Surrey Cardiology.")
+
+        t1b = save_test_order(nhs1, "FBC (Full Blood Count)", "blood_test", "2026-04-08",
+                              "Dr. D. Ehiobu", consultation_id=cid1)
+        update_test_result(t1b, "2026-04-08", "Hb 14.2, WBC 11.3, Plt 198 -- mildly elevated WBC",
+                           "abnormal", "Stress response expected in acute MI.", "No additional action.")
+
+        t1c = save_test_order(nhs1, "Chest X-Ray", "imaging", "2026-04-08",
+                              "Dr. D. Wake-Trent", consultation_id=cid1)
+        update_test_result(t1c, "2026-04-08", "CXR: Mild pulmonary oedema. No pneumothorax.",
+                           "abnormal", "Consistent with LV dysfunction post-MI.", "Echo arranged.")
+
+        t1d = save_test_order(nhs1, "Echocardiogram", "imaging", "2026-04-09",
+                              "Dr. D. Wake-Trent", consultation_id=cid1)
+        update_test_result(t1d, "2026-04-09", "Echo: LVEF 45%. Anterior wall hypokinesis. No pericardial effusion.",
+                           "abnormal", "Post-PCI echo. Acceptable EF for anterior STEMI.",
+                           "Cardiac rehab referral made. Repeat echo in 3 months.")
+
+        # Hospital admission
+        adm1 = save_hospital_admission(
+            nhs_number=nhs1,
+            admission_date="2026-04-08",
+            hospital_name="East Surrey Hospital",
+            ward="Coronary Care Unit (CCU-4)",
+            consultant="Dr. D. Wake-Trent -- Cardiologist",
+            diagnosis="Acute ST-Elevation Myocardial Infarction (I21.0)",
+            treatment="Percutaneous Coronary Intervention (PCI) -- LAD stenting. "
+                      "Dual antiplatelet therapy. High-intensity statin.",
+            complications="None",
+            expected_discharge="2026-04-13",
+        )
+
+        # Discharge summary
+        save_discharge_summary(
+            nhs_number=nhs1,
+            discharge_date="2026-04-13",
+            discharge_destination="Home",
+            admission_id=adm1,
+            diagnosis="Acute anterior STEMI -- LAD occlusion. TIMI 0 flow on admission, TIMI 3 post-PCI.",
+            treatment_given=(
+                "Primary PCI to LAD with drug-eluting stent (DES). "
+                "Dual antiplatelet therapy (aspirin + ticagrelor). "
+                "Atorvastatin 80mg, Ramipril 5mg, Bisoprolol 2.5mg commenced."
+            ),
+            discharge_medications=(
+                "Aspirin 75mg OD, Ticagrelor 90mg BD, Atorvastatin 80mg ON, "
+                "Ramipril 5mg OD, Bisoprolol 2.5mg OD"
+            ),
+            follow_up_instructions=(
+                "Cardiology OPD 4 weeks (2026-05-13). Cardiac rehabilitation referral made. "
+                "No driving for 4 weeks (DVLA standard post-MI). "
+                "Return immediately if chest pain, SOB, or palpitations."
+            ),
+            gp_actions=(
+                "1. Blood pressure and lipid review at 6-week follow-up. "
+                "2. Continue dual antiplatelet -- do not stop without cardiology advice. "
+                "3. Repeat echo report to be filed when received (booked 2026-07-13). "
+                "4. Cardiac rehab attendance to be confirmed."
+            ),
+        )
+
+        # Case closure
+        save_case_closure(
+            nhs_number=nhs1,
+            closed_by="Dr. D. Ehiobu",
+            closure_reason="Discharge following successful PCI. GP follow-up plan in place.",
+            retention_date="2036-04-13",
+            case_summary=(
+                "58M with anterior STEMI. Primary PCI to LAD performed 2026-04-08. "
+                "TIMI 3 flow restored. EF 45% post-procedure. Discharged day 5 on DAPT. "
+                "Cardiac rehab referral made. GP to review at 6 weeks."
+            ),
+        )
+
+        print("[OK] GP workflow seeded: Patient 1 (Dennis E -- STEMI)")
+
+    # ── Patient 2: Child 8F -- RED Meningitis -> IV Abx -> Discharged ─────────
+    nhs2 = "375 819 2048"
+    if _gp_workflow_seeded(nhs2):
+        print("[SKIP] GP workflow already seeded: Patient 2")
+    else:
+        cid2 = save_consultation(
+            nhs_number=nhs2,
+            consultation_date="2026-04-06",
+            gp_name="Dr. A. Patel",
+            gp_email="a.patel@eastsurrey.nhs.uk",
+            presenting_complaint=(
+                "8-year-old female with 6-hour history of high fever (39.8C), "
+                "severe headache, neck stiffness, photophobia, and non-blanching "
+                "petechial rash on trunk. Accompanied by parent."
+            ),
+            examination_findings=(
+                "T 39.8. HR 118. RR 26. BP 88/52. SpO2 94%. Kernig sign positive. "
+                "Brudzinski sign positive. Non-blanching purpuric rash on trunk and thighs. "
+                "Photophobic. GCS 14/15 (E3V5M6)."
+            ),
+            assessment=(
+                "Bacterial meningitis / meningococcal septicaemia. "
+                "NICE NG51 red flag criteria fully met. Medical emergency."
+            ),
+            plan=(
+                "IV Ceftriaxone 80mg/kg stat commenced. Blood cultures before antibiotics. "
+                "Dexamethasone 0.15mg/kg IV commenced. ITU reviewed -- HDU level care. "
+                "CT head arranged to assess for LP safety."
+            ),
+            plan_detail=(
+                "Parent kept at bedside. PHE notified re: meningococcal case. "
+                "Siblings and close contacts assessed for prophylaxis."
+            ),
+            follow_up_date="2026-05-06",
+            follow_up_gp="Dr. A. Patel",
+            follow_up_surgery="East Surrey Hospital Paediatric Outpatients",
+            created_by="Dr. A. Patel",
+        )
+
+        t2a = save_test_order(nhs2, "Blood Cultures", "microbiology", "2026-04-06",
+                              "Dr. A. Patel", consultation_id=cid2)
+        update_test_result(t2a, "2026-04-07",
+                           "N. meningitidis Group B isolated. Sensitive to ceftriaxone.",
+                           "abnormal", "Culture confirms meningococcal disease Group B.",
+                           "Continue IV Ceftriaxone. PHE notification completed.")
+
+        t2b = save_test_order(nhs2, "FBC (Full Blood Count)", "blood_test", "2026-04-06",
+                              "Dr. A. Patel", consultation_id=cid2)
+        update_test_result(t2b, "2026-04-06",
+                           "WBC 19.4 (neutrophilia), Hb 11.8, Plt 88 -- thrombocytopenia",
+                           "abnormal", "Consistent with bacterial sepsis.",
+                           "Monitor platelet trend. Haematology review if worsening.")
+
+        t2c = save_test_order(nhs2, "CRP / ESR", "blood_test", "2026-04-06",
+                              "Dr. A. Patel", consultation_id=cid2)
+        update_test_result(t2c, "2026-04-06", "CRP 218 mg/L (ref <5). ESR 94.",
+                           "abnormal", "Severe inflammatory response. Expected in bacterial meningitis.",
+                           "Repeat CRP day 3.")
+
+        t2d = save_test_order(nhs2, "CT Head (non-contrast)", "imaging", "2026-04-06",
+                              "Dr. A. Patel", consultation_id=cid2)
+        update_test_result(t2d, "2026-04-06",
+                           "CT head: No midline shift. No hydrocephalus. No mass lesion. Safe for LP.",
+                           "normal", "LP deferred -- patient too unwell on day 0.",
+                           "Re-assess LP suitability day 2-3.")
+
+        adm2 = save_hospital_admission(
+            nhs_number=nhs2,
+            admission_date="2026-04-06",
+            hospital_name="East Surrey Hospital",
+            ward="Paediatric HDU (PHDU-2)",
+            consultant="Dr. A. Patel -- Paediatrician",
+            diagnosis="Bacterial Meningitis -- N. meningitidis Group B (G00.9)",
+            treatment="IV Ceftriaxone 7-day course. IV Dexamethasone adjunct. "
+                      "Supportive care: IV fluids, analgesia, antipyretics.",
+            complications="Mild bilateral sensorineural hearing loss -- audiology referral made.",
+            expected_discharge="2026-04-13",
+        )
+
+        save_discharge_summary(
+            nhs_number=nhs2,
+            discharge_date="2026-04-13",
+            discharge_destination="Home",
+            admission_id=adm2,
+            diagnosis=(
+                "Confirmed bacterial meningitis -- Neisseria meningitidis Group B. "
+                "CSF: cloudy, WBC 2,400, protein 3.8 g/L, glucose 1.1 (blood 6.2)."
+            ),
+            treatment_given=(
+                "IV Ceftriaxone 80mg/kg OD for 7 days. "
+                "IV Dexamethasone 0.15mg/kg QDS for 4 days. "
+                "IV fluids, strict I/O monitoring, barrier nursing."
+            ),
+            discharge_medications="Oral Amoxicillin prophylaxis x5 days. Paracetamol PRN.",
+            follow_up_instructions=(
+                "Audiology assessment in 4 weeks (2026-05-13). "
+                "Paediatric OPD follow-up 2026-05-06. "
+                "Return immediately if fever, headache, or rash recurs."
+            ),
+            gp_actions=(
+                "1. Confirm audiology appointment received. "
+                "2. School return: GP clearance required -- minimum 2 weeks rest. "
+                "3. Monitor siblings for symptoms -- prophylactic Rifampicin course completed. "
+                "4. File PHE meningococcal notification (reference PHE-2026-04-0412)."
+            ),
+        )
+
+        save_case_closure(
+            nhs_number=nhs2,
+            closed_by="Dr. A. Patel",
+            closure_reason="Discharge following recovery from bacterial meningitis.",
+            retention_date="2033-04-06",  # Child: 25th birthday (2018 + 25 = 2043 vs 10yr = 2036; 2043 wins; but DOB unknown so 10yr used)
+            case_summary=(
+                "8F with bacterial meningitis (N. meningitidis Group B). "
+                "Presented with classic triad and non-blanching rash. IV Ceftriaxone 7 days. "
+                "Full neurological recovery. Mild bilateral hearing loss -- audiology follow-up arranged. "
+                "PHE notified. Siblings given chemoprophylaxis."
+            ),
+        )
+
+        print("[OK] GP workflow seeded: Patient 2 (Child 8F -- Meningitis)")
+
+    # ── Patient 3: Sarah M, 34F -- AMBER Pyelonephritis -> IV Abx -> Discharged ─
+    nhs3 = "629 047 3815"
+    if _gp_workflow_seeded(nhs3):
+        print("[SKIP] GP workflow already seeded: Patient 3")
+    else:
+        cid3 = save_consultation(
+            nhs_number=nhs3,
+            consultation_date="2026-04-10",
+            gp_name="Dr. D. Ehiobu",
+            gp_email="d.ehiobu@holmhurst.nhs.uk",
+            presenting_complaint=(
+                "34-year-old female with 4-day history of dysuria, urinary frequency, "
+                "right loin pain, fever (38.4C), nausea and vomiting. "
+                "Urinalysis: nitrites+, leucocytes++. Pregnancy test negative."
+            ),
+            examination_findings=(
+                "T 38.4. HR 96. BP 108/70. RR 18. SpO2 97%. "
+                "Right CVA tenderness +++. No peritonism. No guarding. "
+                "Urinalysis dipstick: nitrites+, leukocytes++, blood+."
+            ),
+            assessment=(
+                "Acute pyelonephritis -- upper urinary tract infection. "
+                "IV antibiotics required: vomiting prevents oral therapy. "
+                "NICE NG112 pathway followed."
+            ),
+            plan=(
+                "Admit to MAU for IV co-amoxiclav. MSU sent for MC&S. "
+                "Blood cultures x2. IV fluids. Anti-emetics PRN. "
+                "Renal ultrasound to exclude obstruction."
+            ),
+            plan_detail=(
+                "Urine MC&S result to guide antibiotic switch if no improvement at 48h. "
+                "Step-down to oral co-amoxiclav when tolerating oral intake."
+            ),
+            follow_up_date="2026-04-24",
+            follow_up_gp="Dr. D. Ehiobu",
+            follow_up_surgery="Holmhurst Medical Centre",
+            created_by="Dr. D. Ehiobu",
+        )
+
+        t3a = save_test_order(nhs3, "MSU (Mid-Stream Urine) MC&S", "microbiology", "2026-04-10",
+                              "Dr. D. Ehiobu", consultation_id=cid3)
+        update_test_result(t3a, "2026-04-11",
+                           "E. coli >10^5 CFU/mL. Sensitive to co-amoxiclav, trimethoprim, nitrofurantoin.",
+                           "abnormal", "Culture confirms E. coli pyelonephritis. Sensitive to current treatment.",
+                           "Continue IV co-amoxiclav. Step-down to oral when tolerating.")
+
+        t3b = save_test_order(nhs3, "FBC (Full Blood Count)", "blood_test", "2026-04-10",
+                              "Dr. D. Ehiobu", consultation_id=cid3)
+        update_test_result(t3b, "2026-04-10",
+                           "WBC 14.2 (neutrophilia). Hb 13.1. Plt 312.",
+                           "abnormal", "Inflammatory response consistent with bacterial infection.",
+                           "Repeat FBC day 2 to confirm response.")
+
+        t3c = save_test_order(nhs3, "CRP / ESR", "blood_test", "2026-04-10",
+                              "Dr. D. Ehiobu", consultation_id=cid3)
+        update_test_result(t3c, "2026-04-10", "CRP 142 mg/L. ESR 56.",
+                           "abnormal", "Significant inflammation. Consistent with pyelonephritis.",
+                           "Repeat CRP at discharge to confirm falling trend.")
+
+        t3d = save_test_order(nhs3, "Renal Ultrasound", "imaging", "2026-04-10",
+                              "Dr. D. Ehiobu", consultation_id=cid3, notify_nhs_app=True)
+        update_test_result(t3d, "2026-04-11",
+                           "USS Kidneys/Bladder: No hydronephrosis. No calculi. Normal renal size.",
+                           "normal", "No obstructive uropathy. Reassuring.",
+                           "No further imaging required. Continue antibiotic course.")
+
+        adm3 = save_hospital_admission(
+            nhs_number=nhs3,
+            admission_date="2026-04-10",
+            hospital_name="East Surrey Hospital",
+            ward="Medical Assessment Unit (MAU-7)",
+            consultant="Dr. D. Ehiobu -- GP",
+            diagnosis="Acute Pyelonephritis -- E. coli (N10)",
+            treatment="IV Co-amoxiclav 1.2g TDS for 3 days, then step-down to "
+                      "oral co-amoxiclav 625mg TDS for 7 days.",
+            complications="None",
+            expected_discharge="2026-04-13",
+        )
+
+        save_discharge_summary(
+            nhs_number=nhs3,
+            discharge_date="2026-04-13",
+            discharge_destination="Home",
+            admission_id=adm3,
+            diagnosis="Acute pyelonephritis -- E. coli sensitive to co-amoxiclav. "
+                      "Renal ultrasound normal. No structural abnormality.",
+            treatment_given=(
+                "IV Co-amoxiclav 1.2g TDS for 3 days (2026-04-10 to 2026-04-12). "
+                "IV fluids 1L sodium chloride 0.9% x2. Ondansetron 4mg IV PRN."
+            ),
+            discharge_medications="Co-amoxiclav 625mg TDS x7 days (oral step-down).",
+            follow_up_instructions=(
+                "GP review in 2 weeks (2026-04-24) to confirm resolution. "
+                "Complete full antibiotic course. Increase fluid intake to 2L/day. "
+                "Return if fever, rigors, or worsening loin pain."
+            ),
+            gp_actions=(
+                "1. Review MSU MC&S result -- sensitivities confirmed, current Abx appropriate. "
+                "2. Consider referral to urology if recurrent UTIs (2+ in 6 months). "
+                "3. Check CRP at 2-week review to confirm resolution. "
+                "4. File discharge summary -- annotate antibiotic allergy status (NKDA)."
+            ),
+        )
+
+        save_case_closure(
+            nhs_number=nhs3,
+            closed_by="Dr. D. Ehiobu",
+            closure_reason="Discharge following successful treatment for acute pyelonephritis.",
+            retention_date="2036-04-13",
+            case_summary=(
+                "34F with E. coli acute pyelonephritis. IV co-amoxiclav 3 days. "
+                "Step-down to oral. Renal USS normal. Discharged day 3. "
+                "GP follow-up 2026-04-24."
+            ),
+        )
+
+        print("[OK] GP workflow seeded: Patient 3 (Sarah M -- Pyelonephritis)")
+
+    # ── Patient 4: James K, 42M -- AMBER Depression -> Still Admitted ─────────
+    nhs4 = "748 392 6017"
+    if _gp_workflow_seeded(nhs4):
+        print("[SKIP] GP workflow already seeded: Patient 4")
+    else:
+        cid4 = save_consultation(
+            nhs_number=nhs4,
+            consultation_date="2026-04-09",
+            gp_name="Dr. S. Morrison",
+            gp_email="s.morrison@greystonehouse.nhs.uk",
+            presenting_complaint=(
+                "42-year-old male with 3-week history of worsening low mood, "
+                "social withdrawal, insomnia (early morning waking), poor appetite, "
+                "and passive suicidal ideation (no active plan, no intent, no means)."
+            ),
+            examination_findings=(
+                "Alert and orientated. Flat affect. Poor eye contact. "
+                "PHQ-9 score: 22 (severe depression). Columbia SSRS: passive SI only. "
+                "No psychotic features. No evidence of mania. "
+                "Physical observations normal: T 36.9, HR 88, BP 126/82."
+            ),
+            assessment=(
+                "Severe depressive episode without psychotic features (F32.2). "
+                "Passive suicidal ideation -- MCA assessment completed, patient has capacity. "
+                "Risk: moderate. Inpatient stabilisation required."
+            ),
+            plan=(
+                "Emergency psychiatric referral to East Surrey PAU. "
+                "Crisis plan co-produced with patient. Samaritans number given. "
+                "Next of kin (wife) contacted with patient consent."
+            ),
+            plan_detail=(
+                "Sertraline 50mg OD commenced. CBT referral submitted. "
+                "CPN allocated -- weekly contact. Social services referral made."
+            ),
+            follow_up_date="2026-05-09",
+            follow_up_gp="Dr. S. Morrison",
+            follow_up_surgery="Greystone House Surgery",
+            created_by="Dr. S. Morrison",
+        )
+
+        t4a = save_test_order(nhs4, "TFTs (Thyroid Function Tests)", "blood_test", "2026-04-09",
+                              "Dr. S. Morrison", consultation_id=cid4)
+        update_test_result(t4a, "2026-04-10",
+                           "TSH 2.1 mIU/L (normal). T4 14.2 pmol/L (normal). No thyroid dysfunction.",
+                           "normal", "Thyroid function normal -- depression not secondary to hypothyroidism.",
+                           "No thyroid treatment required. Diagnosis remains primary depression.")
+
+        t4b = save_test_order(nhs4, "FBC (Full Blood Count)", "blood_test", "2026-04-09",
+                              "Dr. S. Morrison", consultation_id=cid4)
+        update_test_result(t4b, "2026-04-10",
+                           "Hb 13.8. WBC 7.4 (normal). Plt 224. MCV 88. Normal FBC.",
+                           "normal", "No anaemia, no infection. Supports primary psychiatric diagnosis.",
+                           "No further haematology investigation required.")
+
+        # Still admitted -- no discharge summary or case closure yet
+        save_hospital_admission(
+            nhs_number=nhs4,
+            admission_date="2026-04-09",
+            hospital_name="East Surrey Hospital",
+            ward="Psychiatric Assessment Unit (PAU-3)",
+            consultant="Dr. S. Morrison -- GP",
+            diagnosis="Severe Depressive Episode without Psychotic Features (F32.2)",
+            treatment="Sertraline 50mg OD titration. Inpatient psychiatric stabilisation. "
+                      "CBT referral. CPN allocated. Zopiclone 7.5mg ON short course.",
+            complications="None",
+            expected_discharge="2026-04-15",
+        )
+        # No discharge summary or case closure -- patient still admitted
+
+        print("[OK] GP workflow seeded: Patient 4 (James K -- Depression, still admitted)")
+
+    # ── Patient 5: Emma T, 28F -- GREEN Viral Tonsillitis -> Same-day Discharge ─
+    nhs5 = "513 826 4739"
+    if _gp_workflow_seeded(nhs5):
+        print("[SKIP] GP workflow already seeded: Patient 5")
+    else:
+        cid5 = save_consultation(
+            nhs_number=nhs5,
+            consultation_date="2026-04-13",
+            gp_name="Dr. D. Ehiobu",
+            gp_email="d.ehiobu@holmhurst.nhs.uk",
+            presenting_complaint=(
+                "28-year-old female with 3-day history of sore throat, mild odynophagia, "
+                "low-grade fever (37.6C), and fatigue. FeverPAIN score 2."
+            ),
+            examination_findings=(
+                "T 37.6. HR 76. BP 116/74. SpO2 99%. "
+                "Tonsils mildly erythematous -- no exudate, no peritonsillar bulging. "
+                "No cervical lymphadenopathy. No stridor. No drooling. No trismus. "
+                "FeverPAIN score: 2 (fever + purulence absent + attend within 3 days)."
+            ),
+            assessment=(
+                "Viral tonsillitis -- low probability of streptococcal infection. "
+                "FeverPAIN 2 = <40% strep probability. No antibiotics indicated (NICE NG84)."
+            ),
+            plan=(
+                "Analgesia: ibuprofen 400mg TDS + paracetamol 1g QDS PRN. "
+                "Adequate hydration. Rest 2-3 days. "
+                "Safety-net advice: return if symptoms worsen, dysphagia severe, "
+                "or fever persists beyond 5 days."
+            ),
+            plan_detail=(
+                "No follow-up booked unless symptoms persist. "
+                "Patient education: antibiotics not appropriate for viral sore throat."
+            ),
+            follow_up_date="",
+            follow_up_gp="Dr. D. Ehiobu",
+            follow_up_surgery="Holmhurst Medical Centre (PRN only)",
+            created_by="Dr. D. Ehiobu",
+        )
+        # No test orders -- GREEN triage, no investigations needed
+
+        # No hospital admission -- GP-managed same-day case closure
+        save_case_closure(
+            nhs_number=nhs5,
+            closed_by="Dr. D. Ehiobu",
+            closure_reason="Same-day GP consultation. Self-limiting viral illness. No follow-up required.",
+            retention_date="2036-04-13",
+            case_summary=(
+                "28F with viral tonsillitis. FeverPAIN 2. Conservative management. "
+                "Discharged same day. No antibiotics prescribed. Safety-net advice given."
+            ),
+        )
+
+        print("[OK] GP workflow seeded: Patient 5 (Emma T -- Viral Tonsillitis)")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -936,9 +1485,17 @@ if __name__ == "__main__":
     seed_patient_5()
 
     print("")
+    print("--- Updating pathway stage labels to new 10-stage GP pathway ---")
+    update_pathway_stage_labels()
+
+    print("")
     print("--- Seeding ward management data ---")
     seed_ward_data()
 
     print("")
-    print("=== Seeding complete. 5 patient journeys + ward data loaded. ===")
+    print("--- Seeding GP workflow data (consultations, tests, admissions, closures) ---")
+    seed_gp_workflow_data()
+
+    print("")
+    print("=== Seeding complete. 5 patient journeys + GP workflow data loaded. ===")
     print("Restart the Streamlit app to see the data in the dashboard.")
