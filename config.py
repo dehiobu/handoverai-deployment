@@ -1,6 +1,7 @@
 """
 Configuration file for GP Triage POC
 """
+APP_VERSION = "0.3.1"
 import os
 from pathlib import Path
 from dotenv import load_dotenv
