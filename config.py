@@ -49,10 +49,19 @@ def get_secret(section: str, key: str, env_key: str | None = None,
 
 
 # OpenAI Configuration
-OPENAI_API_KEY = get_secret("openai", "api_key", "OPENAI_API_KEY")
+# Try in order:
+#   1. st.secrets["openai"]["OPENAI_API_KEY"]  (Streamlit Cloud — uppercase key)
+#   2. st.secrets["openai"]["api_key"]          (legacy lowercase key)
+#   3. os.getenv("OPENAI_API_KEY")              (local .env file)
+OPENAI_API_KEY = (
+    get_secret("openai", "OPENAI_API_KEY", "OPENAI_API_KEY")
+    or get_secret("openai", "api_key", "OPENAI_API_KEY")
+)
 if not OPENAI_API_KEY:
     raise ValueError(
-        "OPENAI_API_KEY not found. Add it to .env (local) or Streamlit secrets (cloud)."
+        "OPENAI_API_KEY not found. "
+        "Streamlit Cloud: add it under [openai] → OPENAI_API_KEY in the Secrets dashboard. "
+        "Local: set OPENAI_API_KEY in your .env file."
     )
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
