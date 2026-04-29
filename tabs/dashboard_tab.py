@@ -8,7 +8,7 @@ import streamlit as st
 
 from src.database import (
     get_dashboard_stats, get_all_triage_sessions,
-    get_ward_overview_stats, get_login_audit,
+    get_ward_overview_stats, get_login_audit, get_ensemble_stats,
 )
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
@@ -114,8 +114,32 @@ def _render_historical_section() -> None:
     st.markdown("---")
 
 
+def _render_ensemble_stats_section() -> None:
+    """Render ClinisenseAI Ensemble Stats from the database."""
+    stats = get_ensemble_stats()
+    if not stats or stats.get("total_ensemble", 0) == 0:
+        return
+
+    st.markdown(
+        '<div class="section-heading">ClinisenseAI Ensemble Stats</div>',
+        unsafe_allow_html=True,
+    )
+    e1, e2, e3, e4, e5 = st.columns(5)
+    e1.metric("Ensemble Triages",          stats["total_ensemble"])
+    e2.metric("Avg Agreement Score",       f"{stats['avg_agreement_score']:.0f}%")
+    e3.metric("Mandatory Reviews Flagged", stats["mandatory_review_count"])
+    e4.metric("Avg Ensemble Time",         f"{stats['avg_response_time_s']:.1f}s")
+    e5.metric("Most Common Disagreement",  "See below")
+    if stats.get("top_disagreement") and stats["top_disagreement"] != "None recorded":
+        st.caption(f"Most common disagreement pattern: {stats['top_disagreement']}")
+    st.markdown("---")
+
+
 def render_executive_dashboard() -> None:
     """Render the Executive Metrics Dashboard tab."""
+    # ClinisenseAI ensemble stats (shown if ensemble triages exist)
+    _render_ensemble_stats_section()
+
     # Historical DB section always shown if data exists
     _render_historical_section()
 

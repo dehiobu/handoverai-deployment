@@ -1,6 +1,7 @@
 """
 tabs/triage_tab.py — Triage tab UI and logic (Phases 1, 2, 3, 4).
 """
+import asyncio
 import json
 import os
 import smtplib
@@ -181,6 +182,113 @@ def _send_assignment_email(doctor: dict, patient_input: str, triage_decision: st
         return False, str(exc)
 
 
+_LEVEL_COLOURS = {"RED": "#DA291C", "AMBER": "#FFB81C", "GREEN": "#009639"}
+
+
+def _render_ensemble_panel(ensemble: dict) -> None:
+    """Render the ClinisenseAI Model Agreement Panel for an ensemble result."""
+    st.markdown("---")
+    st.subheader("ClinisenseAI Model Agreement")
+
+    # Mandatory review banner
+    if ensemble.get("mandatory_review"):
+        st.error(
+            "MANDATORY CLINICIAN REVIEW REQUIRED — "
+            "Models disagree on triage level or confidence is low."
+        )
+
+    # Four model badges in columns
+    model_responses: dict = ensemble.get("model_responses", {})
+    _all_models = ["GPT-4o", "Claude", "Gemini", "Mistral"]
+    _shown = [m for m in _all_models if m in model_responses]
+    if _shown:
+        badge_cols = st.columns(len(_shown))
+        for col, model_name in zip(badge_cols, _shown):
+            info = model_responses[model_name]
+            lvl = info.get("triage", "N/A")
+            colour = _LEVEL_COLOURS.get(lvl, "#888888")
+            err = info.get("error")
+            label = f"ERROR" if err else lvl
+            col.markdown(
+                f'<div style="background:{colour};color:white;text-align:center;'
+                f'padding:8px 4px;border-radius:6px;font-weight:bold;">'
+                f'{model_name}<br/>{label}</div>',
+                unsafe_allow_html=True,
+            )
+            if err:
+                col.caption(f"Error: {err[:60]}")
+
+    st.markdown("")
+
+    # Agreement score progress bar
+    score = ensemble.get("agreement_score", 0.0)
+    consensus_type = ensemble.get("consensus_type", "NONE")
+    if score >= 100:
+        bar_colour = "normal"
+        label_text = f"Agreement: {score:.0f}% — Perfect consensus"
+    elif score >= 75:
+        bar_colour = "normal"
+        label_text = f"Agreement: {score:.0f}% — Strong consensus"
+    elif score >= 50:
+        bar_colour = "normal"
+        label_text = f"Agreement: {score:.0f}% — Weak consensus — review recommended"
+    else:
+        bar_colour = "normal"
+        label_text = f"Agreement: {score:.0f}% — No consensus — mandatory review"
+
+    st.caption(label_text)
+    st.progress(score / 100)
+
+    # Response times
+    response_times: dict = ensemble.get("response_times", {})
+    if response_times:
+        st.caption(
+            "Response times: "
+            + "  |  ".join(
+                f"{m}: {t:.1f}s" for m, t in response_times.items()
+            )
+        )
+
+    # Skipped models
+    skipped = ensemble.get("models_skipped", [])
+    if skipped:
+        st.info(
+            f"Running {len(ensemble.get('models_used', []))}-model ensemble "
+            f"({', '.join(skipped)} not configured)"
+        )
+
+    # Judge model synthesis
+    judge_reasoning = ensemble.get("judge_reasoning", "")
+    disagreements   = ensemble.get("disagreements", "")
+    consensus_sum   = ensemble.get("consensus_summary", "")
+    with st.expander("View Judge Model Synthesis"):
+        if consensus_sum:
+            st.markdown(f"**Consensus:** {consensus_sum}")
+        if disagreements:
+            st.markdown(f"**Disagreements:** {disagreements}")
+        if judge_reasoning:
+            st.markdown(f"**Synthesised Reasoning:** {judge_reasoning}")
+        safety_flags = ensemble.get("safety_flags", [])
+        if safety_flags:
+            for flag in safety_flags:
+                st.warning(flag)
+
+    # Per-model summaries in expander
+    with st.expander("View individual model assessments"):
+        for model_name in _shown:
+            info = model_responses[model_name]
+            summary = info.get("summary", "")
+            lvl     = info.get("triage", "N/A")
+            colour  = _LEVEL_COLOURS.get(lvl, "#888888")
+            st.markdown(
+                f'<span style="background:{colour};color:white;padding:2px 8px;'
+                f'border-radius:4px;font-weight:bold;">{model_name}: {lvl}</span>',
+                unsafe_allow_html=True,
+            )
+            st.caption(summary or "No summary available.")
+            st.markdown("")
+
+
 def render_triage() -> None:
     """Render the Triage tab."""
     # Role guard — nurses and managers cannot run triage assessments
@@ -218,6 +326,17 @@ def render_triage() -> None:
         key="patient_input",
     )
 
+    # ── ClinisenseAI Ensemble toggle ─────────────────────────────────────────
+    st.toggle(
+        "Use ClinisenseAI Ensemble (4 models)",
+        value=False,
+        key="ensemble_mode",
+        help=(
+            "Runs GPT-4o, Claude, Gemini and Mistral simultaneously for "
+            "higher accuracy via consensus. Requires additional API keys."
+        ),
+    )
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         triage_button = st.button(
@@ -227,34 +346,106 @@ def render_triage() -> None:
         )
 
     if triage_button and patient_description:
-        with st.spinner("Analysing patient presentation..."):
-            try:
-                t_start = time.time()
-                result = st.session_state.rag_pipeline.triage_patient(patient_description)
-                elapsed = round(time.time() - t_start, 2)
-                st.session_state.triage_history.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "input": patient_description,
-                    "result": result,
-                    "override": None,
-                    "response_time": elapsed,
-                })
-                st.session_state.audit_log.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "patient_input": patient_description,
-                    "triage_decision": result["triage_decision"],
-                    "urgency": result["urgency_timeframe"],
-                    "confidence": result["confidence"],
-                    "red_flags": result["red_flags"],
-                    "differentials": result.get("differentials", ""),
-                    "response_time_seconds": elapsed,
-                    "clinician_override": None,
-                })
-                st.session_state.last_result = len(st.session_state.triage_history) - 1
-            except Exception as exc:
-                st.error(f"Error during triage assessment: {exc}")
-                with st.expander("Error details"):
-                    st.exception(exc)
+        ensemble_mode = st.session_state.get("ensemble_mode", False)
+
+        if ensemble_mode:
+            # ── Ensemble path ─────────────────────────────────────────────
+            with st.spinner("Consulting 4 AI models simultaneously..."):
+                try:
+                    from src.ensemble_engine import run_ensemble_triage  # noqa: PLC0415
+
+                    t_start = time.time()
+                    # Retrieve similar cases from vector store first
+                    similar = st.session_state.rag_pipeline._vector_store.search(
+                        patient_description
+                    )
+                    ensemble_result = asyncio.run(
+                        run_ensemble_triage(patient_description, similar)
+                    )
+                    elapsed = round(time.time() - t_start, 2)
+
+                    # Build a standard result dict from ensemble output
+                    from src.rag_pipeline import _format_similar_cases, _extract_similar_cases_data  # noqa: PLC0415
+                    result = {
+                        "triage_decision":    ensemble_result["final_triage"],
+                        "urgency_timeframe":  "See judge model reasoning",
+                        "clinical_reasoning": ensemble_result["judge_reasoning"],
+                        "red_flags":          (
+                            "; ".join(ensemble_result["safety_flags"])
+                            if ensemble_result["safety_flags"]
+                            else "None identified"
+                        ),
+                        "nice_guideline":     "Refer to relevant NICE guidelines.",
+                        "recommended_action": ensemble_result["judge_reasoning"][:200],
+                        "differentials":      "See judge model synthesis.",
+                        "rule_out":           "See safety flags.",
+                        "follow_up_questions": "Review all model responses.",
+                        "confidence":         ensemble_result["confidence"],
+                        "similar_cases_count": len(similar),
+                        "similar_cases":       _extract_similar_cases_data(similar),
+                        "raw_response":        json.dumps(
+                            ensemble_result["model_responses"], indent=2
+                        ),
+                        "ensemble_result":     ensemble_result,
+                    }
+
+                    st.session_state.triage_history.append({
+                        "timestamp":      datetime.now().isoformat(),
+                        "input":          patient_description,
+                        "result":         result,
+                        "override":       None,
+                        "response_time":  elapsed,
+                        "ensemble_result": ensemble_result,
+                    })
+                    st.session_state.audit_log.append({
+                        "timestamp":             datetime.now().isoformat(),
+                        "patient_input":         patient_description,
+                        "triage_decision":       result["triage_decision"],
+                        "urgency":               result["urgency_timeframe"],
+                        "confidence":            result["confidence"],
+                        "red_flags":             result["red_flags"],
+                        "differentials":         result.get("differentials", ""),
+                        "response_time_seconds": elapsed,
+                        "clinician_override":    None,
+                        "ensemble_mode":         True,
+                    })
+                    st.session_state.last_result = (
+                        len(st.session_state.triage_history) - 1
+                    )
+                except Exception as exc:
+                    st.error(f"Ensemble triage error: {exc}")
+                    with st.expander("Error details"):
+                        st.exception(exc)
+        else:
+            # ── Single-model path (original) ──────────────────────────────
+            with st.spinner("Analysing patient presentation..."):
+                try:
+                    t_start = time.time()
+                    result = st.session_state.rag_pipeline.triage_patient(patient_description)
+                    elapsed = round(time.time() - t_start, 2)
+                    st.session_state.triage_history.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "input": patient_description,
+                        "result": result,
+                        "override": None,
+                        "response_time": elapsed,
+                    })
+                    st.session_state.audit_log.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "patient_input": patient_description,
+                        "triage_decision": result["triage_decision"],
+                        "urgency": result["urgency_timeframe"],
+                        "confidence": result["confidence"],
+                        "red_flags": result["red_flags"],
+                        "differentials": result.get("differentials", ""),
+                        "response_time_seconds": elapsed,
+                        "clinician_override": None,
+                    })
+                    st.session_state.last_result = len(st.session_state.triage_history) - 1
+                except Exception as exc:
+                    st.error(f"Error during triage assessment: {exc}")
+                    with st.expander("Error details"):
+                        st.exception(exc)
     elif triage_button:
         st.warning("Please enter a patient presentation before running triage.")
 
@@ -270,6 +461,11 @@ def render_triage() -> None:
             result      = entry["result"]
             triage_lvl  = result.get("triage_decision", "GREEN").upper()
             urgency_txt = result.get("urgency_timeframe", "")
+
+            # ── ClinisenseAI Model Agreement Panel ───────────────────────────
+            ensemble_data = entry.get("ensemble_result") or result.get("ensemble_result")
+            if ensemble_data:
+                _render_ensemble_panel(ensemble_data)
 
             st.markdown("---")
             tab1, tab2, tab3, tab4, tab5 = st.tabs([

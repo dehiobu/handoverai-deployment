@@ -770,6 +770,15 @@ def init_db() -> None:
             ]:
                 _sqlite_add_col(conn, "referrals", col_def.split()[0], " ".join(col_def.split()[1:]))
 
+        # ensemble_results column on triage_sessions (Phase 8 — ClinisenseAI)
+        if _IS_POSTGRES:
+            conn.execute(text(
+                "ALTER TABLE triage_sessions ADD COLUMN IF NOT EXISTS "
+                "ensemble_results TEXT"
+            ))
+        else:
+            _sqlite_add_col(conn, "triage_sessions", "ensemble_results", "TEXT")
+
 
 # ---------------------------------------------------------------------------
 # Write helpers
@@ -793,19 +802,29 @@ def save_patient(nhs_number: str, age: str = "", gender: str = "",
 
 
 def save_triage(nhs_number: str, result_dict: dict,
-                response_time: float = 0.0) -> int:
-    """Persist a triage session. Returns the new row id."""
+                response_time: float = 0.0,
+                ensemble_results: dict | None = None) -> int:
+    """Persist a triage session. Returns the new row id.
+
+    Parameters
+    ----------
+    ensemble_results : dict | None
+        ClinisenseAI ensemble result dict — stored as JSON in the
+        ensemble_results column when provided.
+    """
+    ensemble_json = json.dumps(ensemble_results) if ensemble_results else None
     params = {
-        "nhs":    nhs_number,
-        "dec":    result_dict.get("triage_decision", ""),
-        "urg":    result_dict.get("urgency_timeframe", ""),
-        "reas":   result_dict.get("clinical_reasoning", ""),
-        "flags":  result_dict.get("red_flags", ""),
-        "conf":   result_dict.get("confidence", ""),
-        "nice":   result_dict.get("nice_guideline", ""),
-        "action": result_dict.get("recommended_action", ""),
-        "diff":   result_dict.get("differentials", ""),
-        "rt":     response_time,
+        "nhs":      nhs_number,
+        "dec":      result_dict.get("triage_decision", ""),
+        "urg":      result_dict.get("urgency_timeframe", ""),
+        "reas":     result_dict.get("clinical_reasoning", ""),
+        "flags":    result_dict.get("red_flags", ""),
+        "conf":     result_dict.get("confidence", ""),
+        "nice":     result_dict.get("nice_guideline", ""),
+        "action":   result_dict.get("recommended_action", ""),
+        "diff":     result_dict.get("differentials", ""),
+        "rt":       response_time,
+        "ensemble": ensemble_json,
     }
     with _conn() as conn:
         if _IS_POSTGRES:
@@ -814,8 +833,9 @@ def save_triage(nhs_number: str, result_dict: dict,
                     INSERT INTO triage_sessions
                         (nhs_number, triage_decision, urgency, clinical_reasoning,
                          red_flags, confidence, nice_guideline, recommended_action,
-                         differentials, response_time_seconds)
-                    VALUES (:nhs, :dec, :urg, :reas, :flags, :conf, :nice, :action, :diff, :rt)
+                         differentials, response_time_seconds, ensemble_results)
+                    VALUES (:nhs, :dec, :urg, :reas, :flags, :conf, :nice, :action,
+                            :diff, :rt, :ensemble)
                     RETURNING id
                 """),
                 params,
@@ -827,8 +847,9 @@ def save_triage(nhs_number: str, result_dict: dict,
                     INSERT INTO triage_sessions
                         (nhs_number, triage_decision, urgency, clinical_reasoning,
                          red_flags, confidence, nice_guideline, recommended_action,
-                         differentials, response_time_seconds)
-                    VALUES (:nhs, :dec, :urg, :reas, :flags, :conf, :nice, :action, :diff, :rt)
+                         differentials, response_time_seconds, ensemble_results)
+                    VALUES (:nhs, :dec, :urg, :reas, :flags, :conf, :nice, :action,
+                            :diff, :rt, :ensemble)
                 """),
                 params,
             )
@@ -1009,6 +1030,62 @@ def get_dashboard_stats() -> dict:
             "total_patients":   total_patients,
             "discharged":       discharged,
         }
+
+
+def get_ensemble_stats() -> dict:
+    """Aggregate ClinisenseAI ensemble stats from triage_sessions."""
+    with _conn() as conn:
+        total_ensemble = conn.execute(
+            text("SELECT COUNT(*) FROM triage_sessions WHERE ensemble_results IS NOT NULL")
+        ).fetchone()[0]
+        if not total_ensemble:
+            return {"total_ensemble": 0}
+
+        # Fetch all ensemble JSON blobs for analysis
+        rows = conn.execute(
+            text(
+                "SELECT ensemble_results FROM triage_sessions "
+                "WHERE ensemble_results IS NOT NULL"
+            )
+        ).fetchall()
+
+    scores: list[float] = []
+    mandatory_count = 0
+    disagreement_pairs: dict[str, int] = {}
+    total_times: list[float] = []
+
+    for (blob,) in rows:
+        try:
+            data = json.loads(blob or "{}")
+        except Exception:
+            continue
+        score = data.get("agreement_score")
+        if score is not None:
+            scores.append(float(score))
+        if data.get("mandatory_review"):
+            mandatory_count += 1
+        disagreements = data.get("disagreements") or ""
+        if disagreements and disagreements.lower() not in ("", "none", "n/a"):
+            key = disagreements[:80]
+            disagreement_pairs[key] = disagreement_pairs.get(key, 0) + 1
+        tt = data.get("total_time")
+        if tt is not None:
+            total_times.append(float(tt))
+
+    avg_score = sum(scores) / len(scores) if scores else 0.0
+    avg_time  = sum(total_times) / len(total_times) if total_times else 0.0
+    top_disagreement = (
+        max(disagreement_pairs, key=lambda k: disagreement_pairs[k])
+        if disagreement_pairs else "None recorded"
+    )
+
+    return {
+        "total_ensemble":       total_ensemble,
+        "avg_agreement_score":  round(avg_score, 1),
+        "mandatory_review_count": mandatory_count,
+        "top_disagreement":     top_disagreement,
+        "avg_response_time_s":  round(avg_time, 2),
+    }
 
 
 def search_patients(query: str) -> list[dict]:
