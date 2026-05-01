@@ -523,8 +523,8 @@ async def run_ensemble_triage(
             "consensus_summary": "Judge model not available (OpenAI key missing).",
             "disagreements": "",
             "clinical_reasoning": "Consensus-based decision only.",
-            "mandatory_review": consensus_type == "NONE",
-            "safety_flags": ["Judge model unavailable"],
+            "mandatory_review": True,   # Always require review when no judge synthesis
+            "safety_flags": ["Judge model unavailable — clinician review required"],
         }
 
     # The judge's final_triage takes precedence; apply safety escalation on top
