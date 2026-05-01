@@ -350,72 +350,159 @@ def render_triage() -> None:
 
         if ensemble_mode:
             # ── Ensemble path ─────────────────────────────────────────────
-            with st.spinner("Consulting 4 AI models simultaneously..."):
-                try:
-                    from src.ensemble_engine import run_ensemble_triage  # noqa: PLC0415
+            # Show the processing header and per-model placeholders BEFORE
+            # the blocking asyncio.run() call.  Streamlit renders
+            # incrementally, so the user sees these immediately.
+            st.markdown("### ClinisenseAI Ensemble Processing")
+            st.markdown("*4 AI models analysing simultaneously...*")
 
-                    t_start = time.time()
-                    # Retrieve similar cases from vector store first
-                    similar = st.session_state.rag_pipeline._vector_store.search(
-                        patient_description
-                    )
-                    ensemble_result = asyncio.run(
-                        run_ensemble_triage(patient_description, similar)
-                    )
-                    elapsed = round(time.time() - t_start, 2)
+            col1, col2 = st.columns(2)
+            with col1:
+                gpt4_status   = st.empty()
+                claude_status = st.empty()
+            with col2:
+                gemini_status  = st.empty()
+                mistral_status = st.empty()
+            judge_status = st.empty()
 
-                    # Build a standard result dict from ensemble output
-                    from src.rag_pipeline import _format_similar_cases, _extract_similar_cases_data  # noqa: PLC0415
-                    result = {
-                        "triage_decision":    ensemble_result["final_triage"],
-                        "urgency_timeframe":  "See judge model reasoning",
-                        "clinical_reasoning": ensemble_result["judge_reasoning"],
-                        "red_flags":          (
-                            "; ".join(ensemble_result["safety_flags"])
-                            if ensemble_result["safety_flags"]
-                            else "None identified"
-                        ),
-                        "nice_guideline":     "Refer to relevant NICE guidelines.",
-                        "recommended_action": ensemble_result["judge_reasoning"][:200],
-                        "differentials":      "See judge model synthesis.",
-                        "rule_out":           "See safety flags.",
-                        "follow_up_questions": "Review all model responses.",
-                        "confidence":         ensemble_result["confidence"],
-                        "similar_cases_count": len(similar),
-                        "similar_cases":       _extract_similar_cases_data(similar),
-                        "raw_response":        json.dumps(
-                            ensemble_result["model_responses"], indent=2
-                        ),
-                        "ensemble_result":     ensemble_result,
-                    }
+            # Initial pending state — visible while asyncio.run() blocks
+            gpt4_status.info("🔄 GPT-4o — Analysing...")
+            claude_status.info("🔄 Claude — Analysing...")
+            gemini_status.info("🔄 Gemini — Analysing...")
+            mistral_status.info("🔄 Mistral — Analysing...")
+            judge_status.info("⏳ Judge Model — Waiting for all models...")
 
-                    st.session_state.triage_history.append({
-                        "timestamp":      datetime.now().isoformat(),
-                        "input":          patient_description,
-                        "result":         result,
-                        "override":       None,
-                        "response_time":  elapsed,
-                        "ensemble_result": ensemble_result,
-                    })
-                    st.session_state.audit_log.append({
-                        "timestamp":             datetime.now().isoformat(),
-                        "patient_input":         patient_description,
-                        "triage_decision":       result["triage_decision"],
-                        "urgency":               result["urgency_timeframe"],
-                        "confidence":            result["confidence"],
-                        "red_flags":             result["red_flags"],
-                        "differentials":         result.get("differentials", ""),
-                        "response_time_seconds": elapsed,
-                        "clinician_override":    None,
-                        "ensemble_mode":         True,
-                    })
-                    st.session_state.last_result = (
-                        len(st.session_state.triage_history) - 1
-                    )
-                except Exception as exc:
-                    st.error(f"Ensemble triage error: {exc}")
-                    with st.expander("Error details"):
-                        st.exception(exc)
+            try:
+                from src.ensemble_engine import run_ensemble_triage  # noqa: PLC0415
+                from src.rag_pipeline import _extract_similar_cases_data  # noqa: PLC0415
+
+                t_start = time.time()
+                similar = st.session_state.rag_pipeline._vector_store.search(
+                    patient_description
+                )
+                # All 4 models run in parallel via asyncio.gather() inside
+                ensemble_result = asyncio.run(
+                    run_ensemble_triage(patient_description, similar)
+                )
+                elapsed = round(time.time() - t_start, 2)
+
+                # ── Update each model status placeholder ─────────────────
+                _placeholders = {
+                    "GPT-4o":  gpt4_status,
+                    "Claude":  claude_status,
+                    "Gemini":  gemini_status,
+                    "Mistral": mistral_status,
+                }
+                model_responses = ensemble_result.get("model_responses", {})
+                skipped         = ensemble_result.get("models_skipped", [])
+                response_times  = ensemble_result.get("response_times", {})
+
+                for model_name, placeholder in _placeholders.items():
+                    if model_name in skipped:
+                        placeholder.warning(f"⚪ {model_name} — Not configured")
+                        continue
+                    info = model_responses.get(model_name)
+                    if info is None:
+                        placeholder.warning(f"⚪ {model_name} — No response")
+                        continue
+                    if info.get("error"):
+                        placeholder.error(
+                            f"❌ {model_name} — Error: {str(info['error'])[:80]}"
+                        )
+                    else:
+                        lvl  = info.get("triage", "UNKNOWN")
+                        icon = "🔴" if lvl == "RED" else "🟡" if lvl == "AMBER" else "🟢"
+                        rt   = response_times.get(model_name, 0)
+                        placeholder.success(f"{icon} {model_name}: {lvl}  ({rt:.1f}s)")
+
+                # ── Judge model verdict ───────────────────────────────────
+                final_level    = ensemble_result["final_triage"]
+                agreement_score = ensemble_result["agreement_score"]
+                consensus_type  = ensemble_result["consensus_type"]
+                models_used_n   = len(ensemble_result.get("models_used", []))
+                judge_rt        = response_times.get("Judge", 0)
+
+                # Count how many models agree with the final triage level
+                agreeing = sum(
+                    1 for m in model_responses.values()
+                    if m.get("triage") == final_level and not m.get("error")
+                )
+                disagreement = consensus_type in ("WEAK", "NONE")
+                final_icon = (
+                    "🔴" if final_level == "RED"
+                    else "🟡" if final_level == "AMBER"
+                    else "🟢"
+                )
+
+                review_line = (
+                    "⚠️ **Model disagreement detected — clinician review recommended**"
+                    if disagreement
+                    else "✅ All models in agreement"
+                )
+                judge_status.markdown(
+                    f"---\n"
+                    f"### Judge Model (GPT-4o) — Final Verdict\n"
+                    f"**{final_icon} Consensus: {final_level}**  \n"
+                    f"Models in agreement: **{agreeing}/{models_used_n}**  \n"
+                    f"Agreement score: **{agreement_score:.0f}%**  \n"
+                    f"Judge response time: {judge_rt:.1f}s  \n"
+                    f"{review_line}"
+                )
+
+                # ── Build standard result dict ────────────────────────────
+                judge_reasoning = ensemble_result.get("judge_reasoning", "")
+                result = {
+                    "triage_decision":     final_level,
+                    "urgency_timeframe":   "See judge model reasoning",
+                    "clinical_reasoning":  judge_reasoning,
+                    "red_flags":           (
+                        "; ".join(ensemble_result["safety_flags"])
+                        if ensemble_result["safety_flags"]
+                        else "None identified"
+                    ),
+                    "nice_guideline":      "Refer to relevant NICE guidelines.",
+                    "recommended_action":  judge_reasoning[:200],
+                    "differentials":       "See judge model synthesis.",
+                    "rule_out":            "See safety flags.",
+                    "follow_up_questions": "Review all model responses.",
+                    "confidence":          ensemble_result["confidence"],
+                    "similar_cases_count": len(similar),
+                    "similar_cases":       _extract_similar_cases_data(similar),
+                    "raw_response":        json.dumps(model_responses, indent=2),
+                    "ensemble_result":     ensemble_result,
+                }
+
+                st.session_state.triage_history.append({
+                    "timestamp":       datetime.now().isoformat(),
+                    "input":           patient_description,
+                    "result":          result,
+                    "override":        None,
+                    "response_time":   elapsed,
+                    "ensemble_result": ensemble_result,
+                })
+                st.session_state.audit_log.append({
+                    "timestamp":             datetime.now().isoformat(),
+                    "patient_input":         patient_description,
+                    "triage_decision":       result["triage_decision"],
+                    "urgency":               result["urgency_timeframe"],
+                    "confidence":            result["confidence"],
+                    "red_flags":             result["red_flags"],
+                    "differentials":         result.get("differentials", ""),
+                    "response_time_seconds": elapsed,
+                    "clinician_override":    None,
+                    "ensemble_mode":         True,
+                })
+                st.session_state.last_result = (
+                    len(st.session_state.triage_history) - 1
+                )
+            except Exception as exc:
+                # Clear pending indicators on error
+                for ph in (gpt4_status, claude_status, gemini_status,
+                           mistral_status, judge_status):
+                    ph.empty()
+                st.error(f"Ensemble triage error: {exc}")
+                with st.expander("Error details"):
+                    st.exception(exc)
         else:
             # ── Single-model path (original) ──────────────────────────────
             with st.spinner("Analysing patient presentation..."):
