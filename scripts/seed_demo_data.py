@@ -1468,6 +1468,136 @@ def seed_gp_workflow_data() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Patient 6: Bruce Pathway, 45M -- AMBER Back Pain / Cauda Equina Screen -> Discharged
+# ---------------------------------------------------------------------------
+
+def seed_patient_bruce() -> None:
+    nhs = "200 300 4001"
+    if _already_seeded(nhs):
+        print("[SKIP] Bruce Pathway already exists: " + nhs)
+        return
+
+    description = (
+        "45-year-old male presenting with 2-week history of severe lower back pain "
+        "radiating to both legs, onset after lifting at work. Mild bladder urgency "
+        "noted today. No saddle anaesthesia. No leg weakness. Bilateral sciatica symptoms."
+    )
+    save_patient(nhs, age="45", gender="Male", description=description,
+                 name="Bruce Pathway")
+
+    save_triage(nhs, {
+        "triage_decision":   "AMBER",
+        "urgency_timeframe": "Urgent -- see within 1-2 hours",
+        "clinical_reasoning": (
+            "Lower back pain with bilateral radiculopathy and new bladder symptoms "
+            "requires urgent cauda equina screen. Absence of saddle anaesthesia and "
+            "full motor function reassuring, but bladder symptom cannot be dismissed. "
+            "MRI spine required urgently to exclude cauda equina compression."
+        ),
+        "red_flags":         "New bladder urgency, bilateral sciatica, acute onset after injury",
+        "confidence":        "Medium confidence -- cauda equina must be excluded",
+        "nice_guideline":    "NICE NG59: Low back pain and sciatica in over 16s",
+        "recommended_action": "Urgent MRI lumbar spine, neurosurgery review if CES suspected",
+        "differentials":     "Cauda equina syndrome, Lumbar disc prolapse, Piriformis syndrome",
+    }, response_time=2.2)
+
+    save_assignment(nhs, "Dr. D. Ehiobu", "Neurosurgery", "East Surrey Hospital")
+    save_referral(nhs, "imaging",    "MRI Lumbar Spine",        "URGENT",  "East Surrey Hospital Radiology")
+    save_referral(nhs, "blood_test", "FBC (Full Blood Count)",  "ROUTINE", "East Surrey Hospital Pathology")
+    save_referral(nhs, "blood_test", "CRP / ESR",               "ROUTINE", "East Surrey Hospital Pathology")
+
+    _stage(nhs, 1, {
+        "patient_description": description,
+        "presentation_time":   "2026-04-15T08:30:00",
+    }, updated_by="Reception")
+
+    _stage(nhs, 2, {
+        "ai_decision":  "AMBER",
+        "urgency":      "Urgent -- see within 1-2 hours",
+        "confidence":   "Medium confidence -- cauda equina must be excluded",
+        "response_time_s": 2.2,
+    }, updated_by="AI System")
+
+    _stage(nhs, 3, {
+        "assigned_doctor": "Dr. D. Ehiobu",
+        "specialty":       "Neurosurgery",
+        "site":            "East Surrey Hospital",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 4, {
+        "imaging":          ["MRI Lumbar Spine"],
+        "blood_tests":      ["FBC (Full Blood Count)", "CRP / ESR"],
+        "letter_generated": True,
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 5, {
+        "admission_date":       "2026-04-15",
+        "ward_name":            "Medical Assessment Unit",
+        "bed_number":           "MAU-12",
+        "admitting_consultant": "Dr. D. Ehiobu -- GP",
+        "admission_type":       "Emergency",
+        "hospital":             "East Surrey Hospital",
+        "admission_status":     "Admitted",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 6, {
+        "confirmed_diagnosis":   "L4/L5 Disc Prolapse with Bilateral L5 Radiculopathy -- No CES",
+        "icd10_code":            "M51.1 -- Lumbar and other intervertebral disc derangements with radiculopathy",
+        "snomed_code":           "202794003",
+        "diagnosing_consultant": "Dr. D. Ehiobu -- GP",
+        "diagnosis_date":        "2026-04-15",
+        "diagnosis_status":      "Confirmed",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 7, {
+        "treatment_type":    "Conservative",
+        "procedure_name":    "Analgesia, physiotherapy referral, activity modification advice",
+        "theatre":           "MAU",
+        "anaesthetic_type":  "None",
+        "operating_surgeon": "Dr. D. Ehiobu -- GP",
+        "procedure_date":    "2026-04-15",
+        "duration_minutes":  0,
+        "treatment_status":  "Complete",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 8, {
+        "outcome":           "Successful",
+        "complications":     "None",
+        "length_of_stay":    "1 day",
+        "follow_up_required": "Yes",
+        "outcome_notes":     "MRI: L4/L5 disc prolapse, bilateral L5 nerve root compression. No CES. Conservative management appropriate.",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 9, {
+        "followup_date":         "2026-04-29",
+        "followup_location":     "Holmhurst Medical Centre",
+        "followup_doctor":       "Dr. D. Ehiobu -- GP",
+        "medications":           "Naproxen 500mg BD, Omeprazole 20mg OD (gastro protection), Diazepam 2mg TDS (short course -- muscle spasm)",
+        "aftercare_instructions": "Physiotherapy referral made. Avoid heavy lifting. Stay active within pain limits. Return IMMEDIATELY if saddle anaesthesia, urinary retention, or bilateral leg weakness develops.",
+        "community_referrals":   ["Physiotherapy"],
+        "aftercare_status":      "Complete",
+    }, updated_by="Dr. D. Ehiobu")
+
+    _stage(nhs, 10, {
+        "discharge_date":        "2026-04-16",
+        "discharge_type":        "Home",
+        "discharge_summary":     "45M discharged following urgent cauda equina screen. MRI confirmed L4/L5 disc prolapse with bilateral radiculopathy but no CES. Conservative management. Physiotherapy referral. Safety-net advice given re: red flags.",
+        "gp_notified":           True,
+        "gp_letter_generated":   True,
+        "patient_accompanied":   False,
+        "transport_arranged":    False,
+        "discharge_medications": "Naproxen 500mg BD, Omeprazole 20mg OD, Diazepam 2mg TDS (5 days only)",
+        "discharge_status":      "Discharged",
+    }, updated_by="Dr. D. Ehiobu")
+
+    save_audit(nhs, "TRIAGE",    "AMBER triage -- cauda equina screen. MRI arranged urgently.", "AI System")
+    save_audit(nhs, "ADMISSION", "MAU admission for urgent MRI and neurosurgery review.",        "Dr. D. Ehiobu")
+    save_audit(nhs, "DISCHARGE", "Discharged day 1. No CES confirmed. Physio referral made.",   "Dr. D. Ehiobu")
+
+    print("[OK] Patient 6 seeded: Bruce Pathway -- L4/L5 Disc Prolapse -- Discharged")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1483,6 +1613,7 @@ if __name__ == "__main__":
     seed_patient_3()
     seed_patient_4()
     seed_patient_5()
+    seed_patient_bruce()
 
     print("")
     print("--- Updating pathway stage labels to new 10-stage GP pathway ---")
@@ -1497,5 +1628,5 @@ if __name__ == "__main__":
     seed_gp_workflow_data()
 
     print("")
-    print("=== Seeding complete. 5 patient journeys + GP workflow data loaded. ===")
+    print("=== Seeding complete. 6 patient journeys + GP workflow data loaded. ===")
     print("Restart the Streamlit app to see the data in the dashboard.")

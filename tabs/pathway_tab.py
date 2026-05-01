@@ -146,7 +146,10 @@ _HANDOVER_USERS = ["Dr D. Ehiobu", "Dr S. Morrison", "Nurse Jones",
 # ---------------------------------------------------------------------------
 
 def _make_new_pathway(nhs_number: str,
-                      triage_case_idx: int | None = None) -> dict:
+                      triage_case_idx: int | None = None,
+                      name: str = "",
+                      age: str = "",
+                      gender: str = "") -> dict:
     """Return a fresh in-memory pathway, auto-filling stages 1-2 from triage."""
     now    = datetime.now().isoformat()
     stages = {i: {"status": "pending", "timestamp": None, "data": {}} for i in range(1, 11)}
@@ -180,6 +183,9 @@ def _make_new_pathway(nhs_number: str,
     return {
         "nhs_number":      nhs_number,
         "created_at":      now,
+        "name":            name,
+        "age":             age,
+        "gender":          gender,
         "triage_case_idx": triage_case_idx,
         "current_stage":   current_stage,
         "stages":          stages,
@@ -1323,15 +1329,21 @@ def render_pathway_tracker() -> None:
     # ── New patient form ────────────────────────────────────────────────────
     with st.expander("Add / Load Patient", expanded=not st.session_state.get("pathways")):
         with st.form("new_patient_form"):
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             with c1:
-                nhs_input = st.text_input("NHS Number",
-                                           placeholder="e.g. 943-476-5919")
+                nhs_input  = st.text_input("NHS Number",
+                                            placeholder="e.g. 943-476-5919")
             with c2:
-                age_input = st.text_input("Age", placeholder="e.g. 68")
+                name_input = st.text_input("Patient Name (optional)",
+                                            placeholder="e.g. Jane Smith")
+            c3, c4, c5 = st.columns(3)
             with c3:
+                age_input = st.text_input("Age", placeholder="e.g. 68")
+            with c4:
                 gender_input = st.selectbox("Gender",
                                              ["Not specified", "Male", "Female", "Other"])
+            with c5:
+                pass  # spacer
             desc_input = st.text_area("Patient Description (brief)", height=60)
 
             # Auto-fill from triage history
@@ -1357,8 +1369,11 @@ def render_pathway_tracker() -> None:
             if nhs in st.session_state.pathways:
                 st.warning(f"NHS number {nhs} already loaded.")
             else:
-                save_patient(nhs, age_input, gender_input, desc_input)
-                pathway = _make_new_pathway(nhs, triage_idx)
+                save_patient(nhs, age_input, gender_input, desc_input,
+                             name=name_input.strip())
+                pathway = _make_new_pathway(nhs, triage_idx,
+                                            name=name_input.strip(),
+                                            age=age_input, gender=gender_input)
                 # Persist auto-filled stages
                 for snum in [1, 2]:
                     s = pathway["stages"][snum]
@@ -1376,8 +1391,23 @@ def render_pathway_tracker() -> None:
 
     # ── Patient selector ────────────────────────────────────────────────────
     nhs_list   = list(st.session_state.pathways.keys())
+
+    def _patient_label(nhs: str) -> str:
+        p      = st.session_state.pathways.get(nhs, {})
+        name   = p.get("name", "")
+        age    = p.get("age", "")
+        gender = p.get("gender", "")
+        demo   = f"{age}y {gender}".strip(" y") if (age or gender) else ""
+        if name and demo:
+            return f"{name} ({demo}) — NHS {nhs}"
+        if name:
+            return f"{name} — NHS {nhs}"
+        if demo:
+            return f"{demo} — NHS {nhs}"
+        return f"NHS {nhs}"
+
     selected_nhs = st.selectbox("Select Patient", nhs_list,
-                                  format_func=lambda n: f"NHS {n}")
+                                  format_func=_patient_label)
     pathway    = st.session_state.pathways[selected_nhs]
     pkey       = selected_nhs.replace("-", "_").replace(" ", "_")
 

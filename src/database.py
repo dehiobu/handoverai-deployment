@@ -146,6 +146,7 @@ _PG_DDL: list[str] = [
     CREATE TABLE IF NOT EXISTS patients (
         id          SERIAL PRIMARY KEY,
         nhs_number  TEXT   UNIQUE NOT NULL,
+        name        TEXT   DEFAULT '',
         age         TEXT   DEFAULT '',
         gender      TEXT   DEFAULT '',
         description TEXT   DEFAULT '',
@@ -432,6 +433,7 @@ _SQLITE_DDL: list[str] = [
     CREATE TABLE IF NOT EXISTS patients (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         nhs_number  TEXT    UNIQUE NOT NULL,
+        name        TEXT    DEFAULT '',
         age         TEXT    DEFAULT '',
         gender      TEXT    DEFAULT '',
         description TEXT    DEFAULT '',
@@ -779,25 +781,34 @@ def init_db() -> None:
         else:
             _sqlite_add_col(conn, "triage_sessions", "ensemble_results", "TEXT")
 
+        # name column on patients (added for named demo patients)
+        if _IS_POSTGRES:
+            conn.execute(text(
+                "ALTER TABLE patients ADD COLUMN IF NOT EXISTS name TEXT DEFAULT ''"
+            ))
+        else:
+            _sqlite_add_col(conn, "patients", "name", "TEXT DEFAULT ''")
+
 
 # ---------------------------------------------------------------------------
 # Write helpers
 # ---------------------------------------------------------------------------
 
 def save_patient(nhs_number: str, age: str = "", gender: str = "",
-                 description: str = "") -> None:
+                 description: str = "", name: str = "") -> None:
     """Insert or update a patient record."""
     with _conn() as conn:
         conn.execute(
             text("""
-                INSERT INTO patients (nhs_number, age, gender, description)
-                VALUES (:nhs, :age, :gender, :desc)
+                INSERT INTO patients (nhs_number, name, age, gender, description)
+                VALUES (:nhs, :name, :age, :gender, :desc)
                 ON CONFLICT(nhs_number) DO UPDATE SET
+                    name        = EXCLUDED.name,
                     age         = EXCLUDED.age,
                     gender      = EXCLUDED.gender,
                     description = EXCLUDED.description
             """),
-            {"nhs": nhs_number, "age": age, "gender": gender, "desc": description},
+            {"nhs": nhs_number, "name": name, "age": age, "gender": gender, "desc": description},
         )
 
 
@@ -1515,10 +1526,11 @@ def load_pathways_from_db() -> dict:
                 text("SELECT * FROM patients WHERE nhs_number = :nhs"),
                 {"nhs": nhs},
             ).fetchone()
-            created_at = (
-                _row(patient)["created_at"]
-                if patient else datetime.now().isoformat()
-            )
+            patient_data = _row(patient) if patient else {}
+            created_at = patient_data.get("created_at", datetime.now().isoformat())
+            name    = patient_data.get("name", "")
+            age     = patient_data.get("age", "")
+            gender  = patient_data.get("gender", "")
 
             stage_rows = conn.execute(
                 text("""
@@ -1551,11 +1563,14 @@ def load_pathways_from_db() -> dict:
                     break
 
             pathways[nhs] = {
-                "nhs_number":     nhs,
-                "created_at":     created_at,
+                "nhs_number":      nhs,
+                "created_at":      created_at,
+                "name":            name,
+                "age":             age,
+                "gender":          gender,
                 "triage_case_idx": None,
-                "current_stage":  current_stage,
-                "stages":         stages,
+                "current_stage":   current_stage,
+                "stages":          stages,
             }
 
     return pathways
