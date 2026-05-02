@@ -1577,6 +1577,90 @@ def load_pathways_from_db() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Full patient summary
+# ---------------------------------------------------------------------------
+
+def get_patient_full_summary(nhs_number: str) -> dict:
+    """Return a complete patient summary dict with nhs_number as the top-level key.
+
+    Gathers all tables for the patient into a single serialisable dict
+    suitable for JSON export or FHIR bundle generation.
+    """
+    from config import format_nhs_number, nhs_reference  # noqa: PLC0415
+    from datetime import datetime as _dt               # noqa: PLC0415
+
+    patient       = get_patient(nhs_number) or {}
+    triage_rows   = [s for s in get_all_triage_sessions()
+                     if s.get("nhs_number") == nhs_number]
+    consultations = get_consultations(nhs_number)
+    test_orders   = get_test_orders(nhs_number)
+    referrals     = get_referrals(nhs_number)
+    observations  = get_observations(nhs_number)
+    medications   = get_medications(nhs_number)
+    safeguarding  = get_safeguarding_flags(nhs_number)
+    ward_logs_    = get_ward_logs(nhs_number)
+    admissions    = get_hospital_admissions(nhs_number)
+    discharges    = get_discharge_summaries(nhs_number)
+    closure       = get_case_closure(nhs_number)
+    pathway_stages_raw = []
+    with _conn() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM pathway_stages WHERE nhs_number=:nhs ORDER BY stage_number"),
+            {"nhs": nhs_number},
+        ).fetchall()
+        pathway_stages_raw = [_row(r) for r in rows]
+
+    audit_rows: list[dict] = []
+    with _conn() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM audit_log WHERE nhs_number=:nhs ORDER BY created_at"),
+            {"nhs": nhs_number},
+        ).fetchall()
+        audit_rows = [_row(r) for r in rows]
+
+    nhs_app_notifs: list[dict] = []
+    try:
+        with _conn() as conn:
+            rows = conn.execute(
+                text("SELECT * FROM nhs_app_notifications WHERE nhs_number=:nhs "
+                     "ORDER BY sent_at DESC"),
+                {"nhs": nhs_number},
+            ).fetchall()
+            nhs_app_notifs = [_row(r) for r in rows]
+    except Exception:
+        pass
+
+    return {
+        "nhs_number":        nhs_number,
+        "nhs_number_formatted": format_nhs_number(nhs_number),
+        "nhs_reference":     nhs_reference(nhs_number),
+        "export_timestamp":  _dt.now().isoformat(),
+        "standard":          "ISB0149 — NHS Number",
+        "patient": {
+            "name":        patient.get("name", ""),
+            "age":         patient.get("age", ""),
+            "gender":      patient.get("gender", ""),
+            "description": patient.get("description", ""),
+            "created_at":  patient.get("created_at", ""),
+        },
+        "triage_sessions":     triage_rows,
+        "gp_consultations":    consultations,
+        "test_orders":         test_orders,
+        "referrals":           referrals,
+        "hospital_admissions": admissions,
+        "ward_logs":           ward_logs_,
+        "observations":        observations,
+        "medications":         medications,
+        "safeguarding_flags":  safeguarding,
+        "discharge_summaries": discharges,
+        "pathway_stages":      pathway_stages_raw,
+        "case_closure":        closure or {},
+        "nhs_app_notifications": nhs_app_notifs,
+        "audit_trail":         audit_rows,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Login audit
 # ---------------------------------------------------------------------------
 

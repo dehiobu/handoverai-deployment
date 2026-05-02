@@ -45,6 +45,18 @@ def _result_flag_to_status(db_status: str) -> str:
     return mapping.get((db_status or "").lower(), "registered")
 
 
+def _nhs_subject(nhs: str) -> dict:
+    """Full FHIR subject block with NHS number identifier on every resource."""
+    nhs_raw = str(nhs).replace(" ", "").replace("-", "")
+    return {
+        "reference": f"Patient/nhs-{nhs}",
+        "identifier": {
+            "system": "https://fhir.nhs.uk/Id/nhs-number",
+            "value":  nhs_raw,
+        },
+    }
+
+
 def _bundle_entry(resource: dict) -> dict:
     """Wrap a FHIR resource in a Bundle entry envelope."""
     rtype = resource.get("resourceType", "")
@@ -191,7 +203,7 @@ def generate_observation_resource(observation: dict, patient: dict) -> dict:
                 "display": "Royal College of Physicians NEWS2 score",
             }],
         },
-        "subject": {"reference": f"Patient/nhs-{nhs}"},
+        "subject":          _nhs_subject(nhs),
         "effectiveDateTime": str(obs_dt),
     }
 
@@ -229,8 +241,8 @@ def generate_service_request(referral: dict, patient: dict) -> dict:
         "status":       "active",
         "intent":       "referral",
         "priority":     _urgency_to_fhir_priority(urgency),
-        "subject":      {"reference": f"Patient/nhs-{nhs}"},
-        "authoredOn":   str(authored),
+        "subject":    _nhs_subject(nhs),
+        "authoredOn": str(authored),
         "requester":    {"display": "HandoverAI GP System"},
         "performer":    [{"display": performer}],
         "reasonCode":   [{"text": reason}],
@@ -258,7 +270,7 @@ def generate_diagnostic_report(test_order: dict, patient: dict) -> dict:
                 "code":   "LAB",
             }],
         }],
-        "subject":          {"reference": f"Patient/nhs-{nhs}"},
+        "subject":           _nhs_subject(nhs),
         "effectiveDateTime": str(eff_dt),
         "conclusion":       summary,
         "conclusionCode": [{
@@ -330,9 +342,14 @@ def generate_fhir_bundle(nhs_number: str) -> dict:
     # 6. GP consultations are informational — noted in bundle meta comment only
     consultations = get_consultations(nhs_number)
 
+    nhs_raw = nhs_number.replace(" ", "").replace("-", "")
     bundle: dict = {
         "resourceType": "Bundle",
-        "id":           f"handoverai-{nhs_number}-{timestamp.replace(':', '-').replace('.', '-')}",
+        "id":           f"handoverai-{nhs_raw}-{timestamp.replace(':', '-').replace('.', '-')}",
+        "identifier": {
+            "system": "https://fhir.nhs.uk/Id/nhs-number",
+            "value":  nhs_raw,
+        },
         "meta": {
             "lastUpdated": timestamp,
             "profile": [

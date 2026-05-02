@@ -279,6 +279,72 @@ def _add_letterhead(doc) -> None:
     _blue_line(doc)
 
 
+# ── NHS patient header box ────────────────────────────────────────────────────
+
+def _add_patient_header_box(
+    doc,
+    nhs_number: str,
+    patient_name: str = "",
+    date_of_birth: str = "",
+    date_str: str = "",
+    reference: str = "",
+) -> None:
+    """
+    Insert the standard NHS patient identification box below the letterhead.
+
+    ┌──────────────────────────────────────────┐
+    │ NHS                         HandoverAI   │
+    │ Patient:        John Smith               │
+    │ NHS Number:     486 740 1692             │
+    │ Date of Birth:  15 March 1966            │
+    │ Date:           2 May 2026               │
+    │ Reference:      NHS-4867401692-20260502  │
+    └──────────────────────────────────────────┘
+    """
+    from config import format_nhs_number, nhs_reference  # noqa: PLC0415
+
+    nhs_fmt  = format_nhs_number(nhs_number)
+    ref_str  = reference or nhs_reference(nhs_number, date_str.replace("-", "")[:8] if date_str else None)
+    date_out = date_str or datetime.now().strftime("%d %B %Y")
+
+    # Outer table: 1 row, 1 cell — acts as the border box
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    cell = table.cell(0, 0)
+
+    # Blue shading on the header row
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd  = OxmlElement("w:shd")
+    shd.set(qn("w:val"),   "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"),  "E8EEF8")
+    tcPr.append(shd)
+
+    # Title line: "PATIENT IDENTIFICATION" in NHS blue
+    p_title = cell.paragraphs[0]
+    p_title.paragraph_format.space_before = Pt(4)
+    p_title.paragraph_format.space_after  = Pt(2)
+    _run(p_title, "PATIENT IDENTIFICATION", bold=True, size=10, colour=_BLUE)
+
+    def _box_row(label: str, value: str) -> None:
+        p = cell.add_paragraph()
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after  = Pt(1)
+        _run(p, f"{label:<16}", bold=True,  size=10, colour=_DARK)
+        _run(p, value,          bold=False, size=10)
+
+    if patient_name:
+        _box_row("Patient:",     patient_name)
+    _box_row("NHS Number:",      nhs_fmt)
+    if date_of_birth:
+        _box_row("Date of Birth:", date_of_birth)
+    _box_row("Date:",            date_out)
+    _box_row("Reference:",       ref_str)
+
+    # Spacing after box
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def generate_referral_letter(
@@ -290,6 +356,8 @@ def generate_referral_letter(
     blood_tests: list,
     triage_result: dict,
     timestamp: str,
+    patient_name: str = "",
+    date_of_birth: str = "",
 ) -> bytes:
     """
     Generate an NHS-branded referral letter.
@@ -303,6 +371,8 @@ def generate_referral_letter(
         blood_tests:         List of blood test names.
         triage_result:       Dict from RAGPipeline (triage_decision, urgency_timeframe, …).
         timestamp:           ISO timestamp string from triage history entry.
+        patient_name:        Optional patient name for header box.
+        date_of_birth:       Optional DOB for header box.
 
     Returns:
         bytes: .docx file content.
@@ -314,6 +384,8 @@ def generate_referral_letter(
     triage_lvl  = triage_result.get("triage_decision", "GREEN").upper()
     urgency_txt = triage_result.get("urgency_timeframe", "")
     date_str    = timestamp[:10] if timestamp else datetime.now().strftime("%Y-%m-%d")
+
+    _add_patient_header_box(doc, nhs_number, patient_name, date_of_birth, date_str)
 
     # Date
     _para(doc, datetime.now().strftime("%d %B %Y"), size=11, space_before=8)
@@ -416,11 +488,13 @@ def generate_referral_letter(
     return _to_bytes(doc)
 
 
-def generate_admission_letter(nhs_number: str, pathway: dict) -> bytes:
+def generate_admission_letter(nhs_number: str, pathway: dict,
+                              patient_name: str = "", date_of_birth: str = "") -> bytes:
     """Generate an NHS-branded admission confirmation letter."""
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number, patient_name, date_of_birth)
 
     s1 = pathway["stages"].get(1,  {}).get("data", {})
     s3 = pathway["stages"].get(3,  {}).get("data", {})
@@ -482,11 +556,13 @@ def generate_admission_letter(nhs_number: str, pathway: dict) -> bytes:
     return _to_bytes(doc)
 
 
-def generate_diagnosis_letter(nhs_number: str, pathway: dict) -> bytes:
+def generate_diagnosis_letter(nhs_number: str, pathway: dict,
+                              patient_name: str = "", date_of_birth: str = "") -> bytes:
     """Generate an NHS-branded diagnosis confirmation letter to GP."""
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number, patient_name, date_of_birth)
 
     s1 = pathway["stages"].get(1,  {}).get("data", {})
     s2 = pathway["stages"].get(2,  {}).get("data", {})
@@ -547,11 +623,13 @@ def generate_diagnosis_letter(nhs_number: str, pathway: dict) -> bytes:
     return _to_bytes(doc)
 
 
-def generate_discharge_letter(nhs_number: str, pathway: dict) -> bytes:
+def generate_discharge_letter(nhs_number: str, pathway: dict,
+                              patient_name: str = "", date_of_birth: str = "") -> bytes:
     """Generate an NHS-branded discharge summary letter to GP."""
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number, patient_name, date_of_birth)
 
     s1  = pathway["stages"].get(1,  {}).get("data", {})
     s2  = pathway["stages"].get(2,  {}).get("data", {})
@@ -748,6 +826,7 @@ def generate_dama_form(nhs_number: str, data: dict) -> bytes:
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number)
 
     _shaded_para(
         doc, "DISCHARGE AGAINST MEDICAL ADVICE (DAMA)",
@@ -841,6 +920,7 @@ def generate_safeguarding_referral(nhs_number: str, flag_data: dict,
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number)
 
     flag_type = flag_data.get("flag_type", "Safeguarding Concern")
     is_child  = "child" in flag_type.lower()
@@ -941,6 +1021,7 @@ def generate_discharge_checklist_doc(nhs_number: str, checklist: dict,
     doc = _new_doc()
     _add_letterhead(doc)
     _add_footer(doc)
+    _add_patient_header_box(doc, nhs_number)
 
     _para(doc, "DISCHARGE PLANNING CHECKLIST", bold=True, size=14,
           colour=_BLUE, space_before=8)

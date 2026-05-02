@@ -2,6 +2,7 @@
 tabs/dashboard_tab.py -- Executive Metrics Dashboard tab (Phases 3 & 5).
 """
 import json
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -10,6 +11,7 @@ from src.database import (
     get_dashboard_stats, get_all_triage_sessions,
     get_ward_overview_stats, get_login_audit, get_ensemble_stats,
 )
+from config import format_nhs_number, nhs_reference
 
 # Stage labels for pathway overview (mirrors pathway_tab.STAGE_LABELS)
 _STAGE_LABELS = {
@@ -29,21 +31,67 @@ _STAGE_LABELS = {
 MANUAL_TRIAGE_MINUTES = 15
 
 
+def _audit_log_to_json(audit_log: list, exported_by: str = "") -> str:
+    """Return audit log as a structured JSON envelope with NHS number as first field."""
+    records = []
+    for entry in audit_log:
+        override = entry.get("clinician_override") or {}
+        nhs_raw  = entry.get("nhs_number", "")
+        records.append({
+            "nhs_number":     format_nhs_number(nhs_raw) if nhs_raw else "Not recorded",
+            "nhs_reference":  nhs_reference(nhs_raw) if nhs_raw else "",
+            "patient_name":   entry.get("patient_name", ""),
+            "action":         "triage_completed",
+            "triage_level":   entry.get("triage_decision", ""),
+            "urgency":        entry.get("urgency", ""),
+            "confidence":     entry.get("confidence", ""),
+            "red_flags":      entry.get("red_flags", ""),
+            "clinician":      entry.get("clinician", ""),
+            "role":           entry.get("role", ""),
+            "timestamp":      entry.get("timestamp", ""),
+            "response_time_seconds": entry.get("response_time_seconds", ""),
+            "ensemble_mode":  entry.get("ensemble_mode", False),
+            "details":        entry.get("patient_input", ""),
+            "override": {
+                "decision":          override.get("decision", ""),
+                "reason":            override.get("reason", ""),
+                "reason_detail":     override.get("reason_detail", ""),
+                "clinician":         override.get("clinician", ""),
+                "clinician_timestamp": override.get("clinician_timestamp", ""),
+            } if override else None,
+        })
+    envelope = {
+        "export_date":    datetime.now().strftime("%Y-%m-%d"),
+        "export_time":    datetime.now().strftime("%H:%M:%S"),
+        "exported_by":    exported_by or "Unknown",
+        "total_records":  len(records),
+        "system":         "HandoverAI — GP Triage POC",
+        "standard":       "ISB0149 — NHS Number",
+        "records":        records,
+    }
+    return json.dumps(envelope, indent=2)
+
+
 def _audit_log_to_csv(audit_log: list) -> str:
-    """Convert the session audit log list to a CSV string."""
+    """Convert session audit log to CSV with nhs_number as first column."""
     rows = []
     for entry in audit_log:
         override = entry.get("clinician_override") or {}
+        nhs_raw  = entry.get("nhs_number", "")
         rows.append({
-            "Timestamp": entry.get("timestamp", ""),
+            "NHS Number":        format_nhs_number(nhs_raw) if nhs_raw else "Not recorded",
+            "NHS Reference":     nhs_reference(nhs_raw) if nhs_raw else "",
+            "Patient Name":      entry.get("patient_name", ""),
+            "Timestamp":         entry.get("timestamp", ""),
             "AI Triage Decision": entry.get("triage_decision", ""),
-            "Urgency": entry.get("urgency", ""),
-            "Confidence": entry.get("confidence", ""),
-            "Red Flags": entry.get("red_flags", ""),
+            "Urgency":           entry.get("urgency", ""),
+            "Confidence":        entry.get("confidence", ""),
+            "Red Flags":         entry.get("red_flags", ""),
             "Response Time (s)": entry.get("response_time_seconds", ""),
+            "Ensemble Mode":     entry.get("ensemble_mode", False),
             "Override Decision": override.get("decision", ""),
-            "Override Reason": override.get("reason", ""),
-            "Override Detail": override.get("reason_detail", ""),
+            "Override Reason":   override.get("reason", ""),
+            "Override Detail":   override.get("reason_detail", ""),
             "Override Timestamp": override.get("clinician_timestamp", ""),
         })
     return pd.DataFrame(rows).to_csv(index=False)
@@ -257,12 +305,14 @@ def render_executive_dashboard() -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
     st.markdown("---")
+    _exported_by = st.session_state.get("user_name", "") or st.session_state.get("user_email", "")
+    _date_str    = datetime.now().strftime("%Y%m%d")
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
             "Download Audit Log (JSON)",
-            data=json.dumps(st.session_state.audit_log, indent=2),
-            file_name="gp_triage_audit_log.json",
+            data=_audit_log_to_json(st.session_state.audit_log, _exported_by),
+            file_name=f"gp_triage_audit_{_date_str}.json",
             mime="application/json",
         )
     with dl2:
@@ -270,7 +320,7 @@ def render_executive_dashboard() -> None:
             st.download_button(
                 "Download Audit Log (CSV)",
                 data=_audit_log_to_csv(st.session_state.audit_log),
-                file_name="gp_triage_audit_log.csv",
+                file_name=f"gp_triage_audit_{_date_str}.csv",
                 mime="text/csv",
             )
 

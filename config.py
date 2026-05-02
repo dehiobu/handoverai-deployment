@@ -107,3 +107,30 @@ OVERFLOW_SURGERIES: list[dict] = [
 RETENTION_ADULT_YEARS    = 10   # from date of case closure
 RETENTION_CHILD_MIN_AGE  = 25   # until patient's 25th birthday, or 10 years, whichever longer
 RETENTION_WARNING_MONTHS = 6    # flag records within 6 months of deletion date
+
+
+# ── NHS number helpers (ISB0149) ─────────────────────────────────────────────
+
+def format_nhs_number(nhs_number: str) -> str:
+    """Format NHS number as XXX XXX XXXX per ISB0149 standard.
+
+    Accepts numbers with or without spaces/hyphens. Returns 'Not assigned'
+    for empty input. Non-10-digit strings are returned unchanged.
+    """
+    if not nhs_number:
+        return "Not assigned"
+    nhs = str(nhs_number).replace(" ", "").replace("-", "")
+    if len(nhs) == 10 and nhs.isdigit():
+        return f"{nhs[:3]} {nhs[3:6]} {nhs[6:]}"
+    return str(nhs_number)
+
+
+def nhs_reference(nhs_number: str, date: str | None = None) -> str:
+    """Generate a standard NHS document reference: NHS-<digits>-<YYYYMMDD>.
+
+    Example: NHS-4867401692-20260502
+    """
+    from datetime import datetime as _dt
+    date_str = date or _dt.now().strftime("%Y%m%d")
+    nhs_raw = str(nhs_number).replace(" ", "").replace("-", "")
+    return f"NHS-{nhs_raw}-{date_str}"

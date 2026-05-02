@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from ui.components import OVERRIDE_REASONS, render_explainability_panel, show_result
 from src import letter_generator
+from config import format_nhs_number, nhs_reference
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -307,6 +308,14 @@ def render_triage() -> None:
 
     st.subheader("Patient Presentation")
 
+    _nhs_col, _spacer = st.columns([1, 2])
+    with _nhs_col:
+        triage_nhs = st.text_input(
+            "NHS Number (optional)",
+            placeholder="e.g. 486 740 1692",
+            key="triage_nhs_input",
+        )
+
     with st.expander("Example templates"):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -347,6 +356,7 @@ def render_triage() -> None:
 
     if triage_button and patient_description:
         ensemble_mode = st.session_state.get("ensemble_mode", False)
+        _nhs_input    = st.session_state.get("triage_nhs_input", "").strip()
 
         if ensemble_mode:
             # ── Ensemble path ─────────────────────────────────────────────
@@ -475,12 +485,14 @@ def render_triage() -> None:
                 st.session_state.triage_history.append({
                     "timestamp":       datetime.now().isoformat(),
                     "input":           patient_description,
+                    "nhs_number":      _nhs_input,
                     "result":          result,
                     "override":        None,
                     "response_time":   elapsed,
                     "ensemble_result": ensemble_result,
                 })
                 st.session_state.audit_log.append({
+                    "nhs_number":            _nhs_input,
                     "timestamp":             datetime.now().isoformat(),
                     "patient_input":         patient_description,
                     "triage_decision":       result["triage_decision"],
@@ -511,22 +523,24 @@ def render_triage() -> None:
                     result = st.session_state.rag_pipeline.triage_patient(patient_description)
                     elapsed = round(time.time() - t_start, 2)
                     st.session_state.triage_history.append({
-                        "timestamp": datetime.now().isoformat(),
-                        "input": patient_description,
-                        "result": result,
-                        "override": None,
+                        "timestamp":     datetime.now().isoformat(),
+                        "input":         patient_description,
+                        "nhs_number":    _nhs_input,
+                        "result":        result,
+                        "override":      None,
                         "response_time": elapsed,
                     })
                     st.session_state.audit_log.append({
-                        "timestamp": datetime.now().isoformat(),
-                        "patient_input": patient_description,
-                        "triage_decision": result["triage_decision"],
-                        "urgency": result["urgency_timeframe"],
-                        "confidence": result["confidence"],
-                        "red_flags": result["red_flags"],
-                        "differentials": result.get("differentials", ""),
+                        "nhs_number":            _nhs_input,
+                        "timestamp":             datetime.now().isoformat(),
+                        "patient_input":         patient_description,
+                        "triage_decision":       result["triage_decision"],
+                        "urgency":               result["urgency_timeframe"],
+                        "confidence":            result["confidence"],
+                        "red_flags":             result["red_flags"],
+                        "differentials":         result.get("differentials", ""),
                         "response_time_seconds": elapsed,
-                        "clinician_override": None,
+                        "clinician_override":    None,
                     })
                     st.session_state.last_result = len(st.session_state.triage_history) - 1
                 except Exception as exc:
@@ -542,6 +556,23 @@ def render_triage() -> None:
             entry = st.session_state.triage_history[case_idx]
             st.markdown("---")
             st.header("Triage Result")
+
+            # ── NHS patient header ────────────────────────────────────────
+            _entry_nhs  = entry.get("nhs_number", "")
+            _triage_dt  = datetime.now().strftime("%d %B %Y %H:%M")
+            _ref        = nhs_reference(_entry_nhs) if _entry_nhs else ""
+            _nhs_fmt    = format_nhs_number(_entry_nhs) if _entry_nhs else "Not recorded"
+            st.markdown(
+                f'<div style="background:#f0f4f8;border:1px solid #005EB8;'
+                f'border-left:5px solid #005EB8;padding:10px 14px;'
+                f'border-radius:4px;margin-bottom:10px;font-size:0.9rem;">'
+                f'<strong>NHS Number:</strong> {_nhs_fmt}&nbsp;&nbsp;'
+                f'<strong>Triage Date:</strong> {_triage_dt}'
+                f'{("&nbsp;&nbsp;<strong>Reference:</strong> " + _ref) if _ref else ""}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
             # Triage card always visible above tabs
             show_result(entry["result"], entry["input"], case_idx)
 

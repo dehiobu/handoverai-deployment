@@ -44,8 +44,10 @@ from src.database import (
     update_discharge_checklist, get_discharge_checklist,
     get_patient_timeline,
     save_shift_handover, get_shift_handovers,
+    get_patient_full_summary,
 )
 from src.auth import get_user_name, get_user_email
+from config import format_nhs_number, nhs_reference
 
 
 # ---------------------------------------------------------------------------
@@ -1301,8 +1303,55 @@ def _render_timeline(nhs: str) -> None:
 # Shift Handover (per-patient)
 # ---------------------------------------------------------------------------
 
+def _render_ward_handover_summary() -> None:
+    """Ward-wide shift handover board — all patients with NHS numbers."""
+    pathways = st.session_state.get("pathways", {})
+    if not pathways:
+        st.info("No patients loaded.")
+        return
+
+    from src.database import get_observations as _get_obs  # noqa: PLC0415
+
+    st.markdown("##### Patients Being Handed Over")
+    st.caption("NHS Number  |  Name  |  Stage  |  Triage  |  NEWS2  |  Outstanding actions")
+
+    for nhs, p in pathways.items():
+        # Skip fully-closed cases
+        if p["stages"].get(10, {}).get("status") == "complete":
+            continue
+
+        name         = p.get("name", "") or f"{p.get('age','')}y {p.get('gender','')}".strip()
+        stage_num    = p.get("current_stage", 1)
+        stage_label  = f"Stage {stage_num}"
+        triage_data  = p["stages"].get(2, {}).get("data", {})
+        triage_level = triage_data.get("ai_decision", "—")
+        triage_icon  = {"RED": "🔴", "AMBER": "🟡", "GREEN": "🟢"}.get(triage_level, "⚪")
+
+        # Latest NEWS2
+        obs = _get_obs(nhs)
+        news2 = obs[0].get("news2_score", "—") if obs else "—"
+        news2_str = f"NEWS2: {news2}"
+
+        # Outstanding: count pending test orders
+        from src.database import get_test_orders as _get_tests  # noqa: PLC0415
+        pending = sum(1 for t in _get_tests(nhs) if t.get("status") == "pending")
+        outstanding = f"{pending} pending test(s)" if pending else "None"
+
+        nhs_fmt = format_nhs_number(nhs)
+        st.markdown(
+            f'<div style="border-left:4px solid #005EB8;padding:6px 10px;'
+            f'margin-bottom:6px;background:#f8f9fa;border-radius:0 4px 4px 0;">'
+            f'<strong>NHS {nhs_fmt}</strong>'
+            f'{(" | " + name) if name else ""}'
+            f' | {stage_label} | {triage_icon} {triage_level}'
+            f' | {news2_str} | {outstanding}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _render_shift_handover(nhs: str) -> None:
-    st.markdown("**Shift Handover**")
+    st.markdown(f"**Shift Handover — NHS {format_nhs_number(nhs)}**")
     handovers = get_shift_handovers(nhs)
     if handovers:
         latest = handovers[0]
@@ -1427,14 +1476,32 @@ def render_pathway_tracker() -> None:
     _gender = _p.get("gender", "")
     _demo  = f"{_age}y {_gender}".strip() if (_age or _gender) else ""
     _label = f"{_name} — {_demo}" if (_name and _demo) else (_name or _demo or "")
-    st.markdown(
-        f'<div style="background:#005EB8;color:#fff;padding:6px 12px;'
-        f'border-radius:4px;font-size:0.9rem;margin-bottom:8px;">'
-        f'<strong>NHS Number: {selected_nhs}</strong>'
-        f'{("  |  " + _label) if _label else ""}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    _banner_col, _export_col = st.columns([3, 1])
+    with _banner_col:
+        st.markdown(
+            f'<div style="background:#005EB8;color:#fff;padding:6px 12px;'
+            f'border-radius:4px;font-size:0.9rem;">'
+            f'<strong>NHS Number: {selected_nhs}</strong>'
+            f'{("  |  " + _label) if _label else ""}'
+            f'&nbsp;&nbsp;|&nbsp;&nbsp;Ref: {nhs_reference(selected_nhs)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _export_col:
+        _summary_json = json.dumps(get_patient_full_summary(selected_nhs), indent=2,
+                                   default=str)
+        _export_fname = (
+            f"patient_summary_"
+            f"{selected_nhs.replace(' ', '')}_"
+            f"{datetime.now().strftime('%Y%m%d')}.json"
+        )
+        st.download_button(
+            "Export Full Summary (JSON)",
+            data=_summary_json,
+            file_name=_export_fname,
+            mime="application/json",
+            use_container_width=True,
+        )
 
     # ── Stepper ──────────────────────────────────────────────────────────────
     _render_stepper(pathway["stages"], pathway["current_stage"])
@@ -1485,6 +1552,10 @@ def render_pathway_tracker() -> None:
     with extra2:
         with st.expander("Shift Handover", expanded=False):
             _render_shift_handover(selected_nhs)
+
+    # ── Ward Handover Summary (all patients) ────────────────────────────────
+    with st.expander("Ward Handover Summary (All Patients)", expanded=False):
+        _render_ward_handover_summary()
 
     # ── NHS App Notifications ────────────────────────────────────────────────
     notifs = get_nhs_app_notifications(selected_nhs)
