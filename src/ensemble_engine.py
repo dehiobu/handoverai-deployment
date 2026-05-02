@@ -242,7 +242,7 @@ async def _call_gemini(prompt_text: str, api_key: str) -> dict[str, Any]:
         client = genai.Client(api_key=api_key)
         resp = await asyncio.wait_for(
             client.aio.models.generate_content(
-                model="gemini-1.5-pro",
+                model="gemini-2.0-flash",
                 contents=prompt_text,
             ),
             timeout=_MODEL_TIMEOUT,
