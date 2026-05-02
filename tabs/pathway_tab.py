@@ -357,9 +357,10 @@ def _render_stage_3(pathway: dict, pkey: str) -> None:
         st.markdown("**Existing Consultations**")
         for c in consults:
             with st.expander(
-                f"{_fmt_dt(c.get('consultation_date'), 10)}  —  "
+                f"NHS {nhs}  —  {_fmt_dt(c.get('consultation_date'), 10)}  —  "
                 f"{c.get('gp_name', '')}  |  {c.get('presenting_complaint', '')[:60]}"
             ):
+                st.markdown(f"**NHS Number:** {nhs}")
                 for k in ["gp_name", "presenting_complaint", "examination_findings",
                           "assessment", "plan", "plan_detail",
                           "follow_up_date", "follow_up_gp", "follow_up_surgery"]:
@@ -449,10 +450,11 @@ def _render_stage_4(pathway: dict, pkey: str) -> None:
                 f'{o.get("status","pending").upper()}</span>'
             )
             with st.expander(
-                f"{o.get('test_name','')} ({o.get('test_type','')})  —  "
+                f"NHS {nhs}  —  {o.get('test_name','')} ({o.get('test_type','')})  —  "
                 f"Ordered {_fmt_dt(o.get('ordered_date'), 10)}"
             ):
                 st.markdown(status_badge, unsafe_allow_html=True)
+                st.markdown(f"**NHS Number:** {nhs}")
                 for k in ["test_name", "test_type", "ordered_date", "ordered_by",
                           "status", "result_date", "result_summary",
                           "result_flag", "gp_review_notes", "action_after_result"]:
@@ -547,9 +549,10 @@ def _render_stage_5(pathway: dict, pkey: str) -> None:
         for r in referrals:
             cat = r.get("referral_category", r.get("referral_type", ""))
             with st.expander(
-                f"{cat}  —  {r.get('referral_name', '')}  |  "
+                f"NHS {nhs}  —  {cat}  —  {r.get('referral_name', '')}  |  "
                 f"{r.get('urgency', '')}  |  {r.get('ereferral_status', r.get('status', ''))}"
             ):
+                st.markdown(f"**NHS Number:** {nhs}")
                 for k in ["referral_category", "referral_name", "urgency",
                           "hospital_name", "department", "specialty",
                           "ereferral_reference", "ereferral_status",
@@ -640,9 +643,10 @@ def _render_stage_6(pathway: dict, pkey: str) -> None:
     if admissions:
         for a in admissions:
             with st.expander(
-                f"Admitted {_fmt_dt(a.get('admission_date'), 10)}  —  "
+                f"NHS {nhs}  —  Admitted {_fmt_dt(a.get('admission_date'), 10)}  —  "
                 f"{a.get('hospital_name', '')}  |  Ward: {a.get('ward', '')}"
             ):
+                st.markdown(f"**NHS Number:** {nhs}")
                 for k in ["admission_date", "hospital_name", "ward", "consultant",
                           "diagnosis", "treatment", "complications", "expected_discharge"]:
                     v = a.get(k, "")
@@ -711,9 +715,10 @@ def _render_stage_7(pathway: dict, pkey: str) -> None:
     if summaries:
         for s in summaries:
             with st.expander(
-                f"Discharge {_fmt_dt(s.get('discharge_date'), 10)}  —  "
+                f"NHS {nhs}  —  Discharge {_fmt_dt(s.get('discharge_date'), 10)}  —  "
                 f"{s.get('diagnosis', '')[:60]}"
             ):
+                st.markdown(f"**NHS Number:** {nhs}")
                 for k in ["discharge_date", "discharge_destination", "diagnosis",
                           "treatment_given", "discharge_medications",
                           "follow_up_instructions", "gp_actions"]:
@@ -793,10 +798,10 @@ def _render_stage_8(pathway: dict, pkey: str) -> None:
     # Show all previous consultations for context
     previous = get_consultations(nhs)
     if previous:
-        with st.expander(f"Previous consultations ({len(previous)})", expanded=False):
+        with st.expander(f"Previous consultations — NHS {nhs} ({len(previous)})", expanded=False):
             for c in previous:
                 st.markdown(
-                    f"- **{_fmt_dt(c.get('consultation_date'), 10)}** — "
+                    f"- **NHS {nhs}**  |  **{_fmt_dt(c.get('consultation_date'), 10)}** — "
                     f"{c.get('gp_name','')} — {c.get('presenting_complaint','')[:80]}"
                 )
 
@@ -1068,9 +1073,10 @@ def _render_ward_management(nhs: str, pathway: dict) -> None:
         if logs:
             for log in logs[:5]:
                 with st.expander(
-                    f"{_fmt_dt(log.get('log_date'), 10)} {log.get('shift','')} — "
+                    f"NHS {nhs}  —  {_fmt_dt(log.get('log_date'), 10)} {log.get('shift','')} — "
                     f"{log.get('clinician','')} ({log.get('role','')})"
                 ):
+                    st.markdown(f"**NHS Number:** {nhs}")
                     for k in ["subjective", "objective", "assessment", "plan"]:
                         v = log.get(k, "")
                         if v:
@@ -1100,6 +1106,7 @@ def _render_ward_management(nhs: str, pathway: dict) -> None:
         if obs_list:
             import pandas as pd
             obs_df = pd.DataFrame([{
+                "NHS Number": nhs,
                 "Date/Shift": f"{_fmt_dt(o.get('obs_date'), 10)} {o.get('shift','')}",
                 "Nurse": o.get("nurse_name", ""),
                 "Temp": o.get("temperature", ""),
@@ -1148,6 +1155,7 @@ def _render_ward_management(nhs: str, pathway: dict) -> None:
         if meds:
             import pandas as pd
             med_df = pd.DataFrame([{
+                "NHS Number": nhs,
                 "Date": _fmt_dt(m.get("med_date"), 10),
                 "Drug": m.get("drug_name", ""),
                 "Dose": m.get("dose", ""),
@@ -1188,6 +1196,7 @@ def _render_ward_management(nhs: str, pathway: dict) -> None:
                 color = "#DA291C" if not f.get("resolved") else "#009639"
                 st.markdown(
                     f'<div style="border-left:4px solid {color};padding:8px;margin-bottom:8px;">'
+                    f'<span style="font-size:0.75rem;color:#666;">NHS {nhs}</span><br>'
                     f'<strong>{f.get("flag_type","")}</strong> — '
                     f'{_fmt_dt(f.get("flagged_at"), 10)} — {f.get("flagged_by","")}<br>'
                     f'{f.get("details","")}</div>',
@@ -1410,6 +1419,22 @@ def render_pathway_tracker() -> None:
                                   format_func=_patient_label)
     pathway    = st.session_state.pathways[selected_nhs]
     pkey       = selected_nhs.replace("-", "_").replace(" ", "_")
+
+    # ── Persistent NHS number banner ─────────────────────────────────────────
+    _p     = pathway
+    _name  = _p.get("name", "")
+    _age   = _p.get("age", "")
+    _gender = _p.get("gender", "")
+    _demo  = f"{_age}y {_gender}".strip() if (_age or _gender) else ""
+    _label = f"{_name} — {_demo}" if (_name and _demo) else (_name or _demo or "")
+    st.markdown(
+        f'<div style="background:#005EB8;color:#fff;padding:6px 12px;'
+        f'border-radius:4px;font-size:0.9rem;margin-bottom:8px;">'
+        f'<strong>NHS Number: {selected_nhs}</strong>'
+        f'{("  |  " + _label) if _label else ""}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Stepper ──────────────────────────────────────────────────────────────
     _render_stepper(pathway["stages"], pathway["current_stage"])
